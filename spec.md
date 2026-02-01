@@ -57,7 +57,7 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Logic:**
     * Maintain a rolling buffer of data for each sensor (last 2 minutes) to smooth out sensor noise.
     * **Stale Data:** Discard any sensor data older than 2 minutes immediately.
-    * **History:** Maintain a ring buffer for the last 24 hours in RAM. Each entry contains a timestamp, the aggregate house temperature, and the individual smoothed readings for every active sensor.
+    * **History:** Maintain a ring buffer for the last 24 hours in RAM with a **1-minute sampling interval**. Each entry contains a timestamp, the aggregate house temperature, and the individual **filtered 2-minute rolling average** for every active sensor.
 * **Sensor Aggregation Logic:**
     * While there are multiple sensors, it will only report 1 number to the `current_temp` IPC file.
     * **Mode = Heat:** Use lowest valid sensor reading.
