@@ -31,7 +31,7 @@ The Raspberry Pi directly drives relays for the HVAC components.
 * **OS:** Yocto Linux (portable to standard Debian/Raspbian).
 * **Language:** Python 3 (primary), Bash (auxiliary).
 * **Modularity:** Distinct systemd services for sensing, decision making, actuation, and UI.
-* **Persistence:** None. To maximize SD card reliability, all runtime state and history are stored in volatile memory (`tmpfs`).
+* **Persistence:** Runtime state is volatile (`tmpfs`). Default startup values are persistent in `/etc/thermostat/defaults.json`.
 
 ### 3.2 Inter-Process Communication (IPC)
 
@@ -42,7 +42,10 @@ The Raspberry Pi directly drives relays for the HVAC components.
     * **Exception:** `thermostat-mqtt` and `thermostat-web` may both write to `set_temp` and `mode` files.
     * **Atomic Operations:** **Critical.** All writes to shared state files must be atomic (write to temporary file -> `mv` to target) to prevent race conditions or partial reads.
 
+### 3.3 Configuration & Initialization
 
+* **Static Configuration:** Stored in `/etc/thermostat/defaults.json`.
+* **Boot Process:** On system startup, before any daemons launch, a one-shot initialization service copies values from `defaults.json` to the corresponding files in `/run/thermostat/` to seed the system state.
 
 ## 4. System Components (Services)
 
