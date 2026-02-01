@@ -73,6 +73,10 @@ The system is divided into five primary daemons managed by `systemd`.
 
 * **Responsibility:** The "brain." Reads state and sensors, decides relay states.
 * **Inputs:** `current_temp`, `set_temp_cool`, `set_temp_heat`, `system_mode`, `fan_mode`.
+* **Logic Priorities:**
+    * **Fan Mode "on":** The Fan relay is **ON**, regardless of `system_mode`. This allows air circulation even if `system_mode` is "off".
+    * **System Mode "off":** The Compressor and Heat relays are forced **OFF**.
+    * **Fan Mode "auto":** The Fan relay matches the state of the Compressor/Heat relays (ON when active, OFF when idle).
 
 * **Hysteresis:** +/- 0.5°F (1°F total swing).
 * **Safety Guards:**
