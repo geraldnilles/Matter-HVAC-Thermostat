@@ -75,6 +75,7 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Safety Guards:**
     * **Short-Cycle Protection:** Minimum 1-minute global lockout between state transitions.
     * **Auto Separation:** Enforce minimum 5°F gap between Heat/Cool setpoints.
+    * **Data Failsafe:** If no fresh sensor data is available (cannot read `current_temp`), force system to "idle" state (all relays OFF).
 
 * **Output:** Writes intended state to `hvac_action` (IPC).
 
