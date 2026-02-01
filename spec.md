@@ -60,10 +60,12 @@ The system is divided into five primary daemons managed by `systemd`.
     * **Stale Data:** Discard any sensor data older than 2 minutes immediately.
     * **History:** Maintain a ring buffer for the last 24 hours in RAM with a **1-minute sampling interval**. Each entry contains a timestamp, the aggregate house temperature, and the individual **filtered 2-minute rolling average** for every active sensor.
 * **Sensor Aggregation Logic:**
-    * While there are multiple sensors, it will only report 1 number to the `current_temp` IPC file.
-    * **Mode = Heat:** Use lowest valid sensor reading.
-    * **Mode = Cool:** Use highest valid sensor reading.
-    * **Mode = Auto:** Use average of all valid sensor readings.
+    * **Partial Failure:** If a defined sensor goes stale (no data for > 2 mins), exclude it from the calculation. Continue operation as long as at least one sensor remains valid.
+    * **Total Failure:** If *zero* sensors are valid, delete the `current_temp` IPC file to immediately trigger the Control Daemon failsafe.
+    * **Calculation (requires >= 1 valid sensor):**
+        * **Mode = Heat:** Use lowest valid sensor reading.
+        * **Mode = Cool:** Use highest valid sensor reading.
+        * **Mode = Auto:** Use average of all valid sensor readings.
 
 * **Output:** Writes `current_temp` and `history.json` to IPC.
 
