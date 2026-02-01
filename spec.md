@@ -74,7 +74,7 @@ The system is divided into five primary daemons managed by `systemd`.
 
 * **Hysteresis:** +/- 0.5°F (1°F total swing).
 * **Safety Guards:**
-    * **Short-Cycle Protection:** Minimum 1-minute global lockout between state transitions.
+    * **Minimum Dwell Time:** Enforce a strict 1-minute duration for all states. Once the system enters a state (idle, heating, cooling, fan), it must remain in that state for at least 60 seconds before transitioning to any other state.
     * **Auto Separation:** Enforce minimum 5°F gap between Heat/Cool setpoints.
     * **Data Failsafe:** If no fresh sensor data is available (cannot read `current_temp`), force system to "idle" state (all relays OFF).
 
