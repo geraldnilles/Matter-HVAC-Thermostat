@@ -63,16 +63,19 @@ The system is divided into five primary daemons managed by `systemd`.
     * **Partial Failure:** If a defined sensor goes stale (no data for > 2 mins), exclude it from the calculation. Continue operation as long as at least one sensor remains valid.
     * **Total Failure:** If *zero* sensors are valid, delete the `current_temp` IPC file to immediately trigger the Control Daemon failsafe.
     * **Calculation (requires >= 1 valid sensor):**
-        * **Mode = Heat:** Use lowest valid sensor reading.
-        * **Mode = Cool:** Use highest valid sensor reading.
-        * **Mode = Auto:** Use average of all valid sensor readings.
+        * **current_temp:** Always calculated as the **average** of all valid sensors (used for UI/Reporting).
+        * **min_temp:** The lowest value among valid sensors (used for Heating logic).
+        * **max_temp:** The highest value among valid sensors (used for Cooling logic).
 
-* **Output:** Writes `current_temp` and `history.json` to IPC.
+* **Output:** Writes `current_temp`, `min_temp`, `max_temp`, and `history.json` to IPC.
 
 ### 4.2 Control Daemon (`thermostat-control`)
 
 * **Responsibility:** The "brain." Reads state and sensors, decides relay states.
-* **Inputs:** `current_temp`, `set_temp_cool`, `set_temp_heat`, `system_mode`, `fan_mode`.
+* **Inputs:** `min_temp`, `max_temp`, `set_temp_cool`, `set_temp_heat`, `system_mode`, `fan_mode`.
+* **Thermostat Logic:**
+    * **Heating Rules:** Compare `min_temp` against `set_temp_heat`. (Heat the coldest room).
+    * **Cooling Rules:** Compare `max_temp` against `set_temp_cool`. (Cool the hottest room).
 * **Logic Priorities:**
     * **Fan Mode "on":** The Fan relay is **ON**, regardless of `system_mode`. This allows air circulation even if `system_mode` is "off".
     * **System Mode "off":** The Compressor and Heat relays are forced **OFF**.
@@ -81,8 +84,8 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Hysteresis:** +/- 0.5°F (1°F total swing).
 * **Safety Guards:**
     * **Minimum Dwell Time:** Enforce a strict 1-minute duration for all states. Once the system enters a state (idle, heating, cooling, fan), it must remain in that state for at least 60 seconds before transitioning to any other state. **This rule overrides all other inputs, including manual user changes to mode or setpoint.**
-    * **Auto Separation:** Enforce minimum 5°F gap between Heat/Cool setpoints.
-    * **Data Failsafe:** If no fresh sensor data is available (cannot read `current_temp`), force system to "idle" state (all relays OFF).
+    * **Auto Separation:** Enforce minimum 7°F gap between Heat/Cool setpoints.
+    * **Data Failsafe:** If no fresh sensor data is available (cannot read `min_temp` or `max_temp`), force system to "idle" state (all relays OFF).
 
 * **Output:** Writes intended state to `hvac_action` (IPC).
 
@@ -115,7 +118,9 @@ The system is divided into five primary daemons managed by `systemd`.
 
 | File Name | Writer(s) | Content | Description |
 | --- | --- | --- | --- |
-| `current_temp` | Sensor | `float` | The aggregated house temperature. |
+| `current_temp` | Sensor | `float` | Average of all valid sensors (for display/MQTT). |
+| `min_temp` | Sensor | `float` | Lowest valid sensor reading (for Heating logic). |
+| `max_temp` | Sensor | `float` | Highest valid sensor reading (for Cooling logic). |
 | `history.json` | Sensor | `JSON` | List of objects: `[{"t": timestamp, "avg": float, "sensors": {"id": float, ...}}, ...]` |
 | `system_mode` | MQTT, Web | `string` | "off", "cool", "heat", "auto". |
 | `fan_mode` | MQTT, Web | `string` | "auto", "on". |
