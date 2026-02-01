@@ -115,3 +115,11 @@ The system is divided into five primary daemons managed by `systemd`.
 | `set_temp_cool` | MQTT, Web | `float` | Cooling target. |
 | `set_temp_heat` | MQTT, Web | `float` | Heating target. |
 | `hvac_action` | Control | `string` | Current action: "idle", "heating", "cooling", "fan". |
+
+## 6. Project Repository Structure
+
+The source code in the git repository is organized as follows:
+
+* **`src/`**: Contains all Python daemon scripts (e.g., `sensor.py`, `control.py`, `gpio.py`) in a flat directory.
+* **`systemd/`**: Contains all systemd unit files (`*.service`).
+* **`config/`**: Contains the default configuration (`defaults.json`) to be installed to `/etc/thermostat/`.
