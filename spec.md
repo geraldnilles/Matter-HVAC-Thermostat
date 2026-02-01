@@ -44,7 +44,7 @@ The Raspberry Pi directly drives relays for the HVAC components.
 
 ### 3.3 Configuration & Initialization
 
-* **Static Configuration:** Stored in `/etc/thermostat/defaults.json`.
+* **Static Configuration:** Stored in `/etc/thermostat/defaults.json`. This includes the startup setpoints, modes, and an **allowlist of sensor MAC addresses** mapped to human-readable location names (e.g., `"A4:C1:38...": "Living Room"`).
 * **Boot Process:** On system startup, before any daemons launch, a one-shot initialization service copies values from `defaults.json` to the corresponding files in `/run/thermostat/` to seed the system state.
 
 ## 4. System Components (Services)
@@ -55,6 +55,7 @@ The system is divided into five primary daemons managed by `systemd`.
 
 * **Responsibility:** Scans for BLE advertisements and maintains valid temperature readings.
 * **Logic:**
+    * **Whitelist Filter:** Only process advertisements from MAC addresses explicitly defined in `/etc/thermostat/defaults.json`. Ignore all unknown devices.
     * Maintain a rolling buffer of data for each sensor (last 2 minutes) to smooth out sensor noise.
     * **Stale Data:** Discard any sensor data older than 2 minutes immediately.
     * **History:** Maintain a ring buffer for the last 24 hours in RAM with a **1-minute sampling interval**. Each entry contains a timestamp, the aggregate house temperature, and the individual **filtered 2-minute rolling average** for every active sensor.
