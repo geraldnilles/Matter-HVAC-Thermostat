@@ -54,7 +54,7 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Logic:**
     * Maintain a rolling buffer of data for each sensor (last 2 minutes) to smooth out sensor noise.
     * **Stale Data:** Discard any sensor data older than 2 minutes immediately.
-    * **History:** Maintain a ring buffer of the aggregate house temperature for the last 24 hours in RAM.
+    * **History:** Maintain a ring buffer for the last 24 hours in RAM. Each entry contains a timestamp, the aggregate house temperature, and the individual smoothed readings for every active sensor.
 * **Sensor Aggregation Logic:**
     * While there are multiple sensors, it will only report 1 number to the `current_temp` IPC file.
     * **Mode = Heat:** Use lowest valid sensor reading.
@@ -104,10 +104,9 @@ The system is divided into five primary daemons managed by `systemd`.
 | File Name | Writer(s) | Content | Description |
 | --- | --- | --- | --- |
 | `current_temp` | Sensor | `float` | The aggregated house temperature. |
-| `history.json` | Sensor | `JSON` | Ring buffer of [timestamp, temp] tuples. |
+| `history.json` | Sensor | `JSON` | List of objects: `[{"t": timestamp, "avg": float, "sensors": {"id": float, ...}}, ...]` |
 | `system_mode` | MQTT, Web | `string` | "off", "cool", "heat", "auto". |
 | `fan_mode` | MQTT, Web | `string` | "auto", "on". |
 | `set_temp_cool` | MQTT, Web | `float` | Cooling target. |
 | `set_temp_heat` | MQTT, Web | `float` | Heating target. |
 | `hvac_state` | Control | `string` | Current action: "idle", "heating", "cooling", "fan". |
-
