@@ -84,6 +84,7 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Responsibility:** The "muscle." Reads desired state and actuates hardware.
 * **Inputs:** `hvac_action` (IPC).
 * **Tools:** `libgpiod`.
+* **Startup Safety:** Service must wait 60 seconds after system boot before starting (e.g., `ExecStartPre=/bin/sleep 60`) to prevent short-cycling after power loss.
 * **Failsafe:** On service stop/kill, immediately set all GPIOs to 0.
 
 ### 4.4 MQTT Daemon (`thermostat-mqtt`)
@@ -113,4 +114,4 @@ The system is divided into five primary daemons managed by `systemd`.
 | `fan_mode` | MQTT, Web | `string` | "auto", "on". |
 | `set_temp_cool` | MQTT, Web | `float` | Cooling target. |
 | `set_temp_heat` | MQTT, Web | `float` | Heating target. |
-| `hvac_state` | Control | `string` | Current action: "idle", "heating", "cooling", "fan". |
+| `hvac_action` | Control | `string` | Current action: "idle", "heating", "cooling", "fan". |
