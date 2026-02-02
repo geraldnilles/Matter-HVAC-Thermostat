@@ -87,7 +87,7 @@ The system is divided into five primary daemons managed by `systemd`.
     * *Example (Heating):* If Setpoint is 70°F -> Turn ON at 69.5°F, Turn OFF at 70.5°F.
     * *Example (Cooling):* If Setpoint is 75°F -> Turn ON at 75.5°F, Turn OFF at 74.5°F.
 * **Safety Guards:**
-    * **Startup Safety:** Upon service start (or restart), the daemon must pause for 60 seconds (forcing "idle") before calculating any logic or writing to `hvac_action`. This ensures compressor safety if the daemon crashes and restarts, as the internal memory of the "last state change" is lost.
+    * **Startup Safety:** Upon service start (or restart), the daemon must pause for 60 seconds before calculating any logic or writing to `hvac_action`. This ensures compressor safety if the daemon crashes and restarts, as the internal memory of the "last state change" is lost.
     * **Minimum Dwell Time:** Enforce a strict 1-minute duration for all states. Once the system enters a state (idle, heating, cooling, fan), it must remain in that state for at least 60 seconds before transitioning to any other state. **This rule overrides all other inputs, including manual user changes to mode or setpoint.**
         * *Example:* If the system is actively cooling and the user switches the mode to "Off", the system **MUST** complete the full 60-second cooling cycle before shutting down relays.
     * **Auto Separation:** Enforce minimum 7°F gap between Heat/Cool setpoints.
