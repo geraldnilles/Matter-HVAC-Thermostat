@@ -134,7 +134,7 @@ The system is divided into five primary daemons managed by `systemd`.
 
 * **Responsibility:** The "muscle." Reads desired state and actuates hardware.
 * **Inputs:** `hvac_action` (IPC).
-* **Tools:** `libgpiod` Python bindings (`gpiod` module).
+* **Tools:** `gpioset` shell command from `libgpiod` package.
 * **Startup Safety:** Service waits 60 seconds after system boot before starting via `ExecStartPre=/bin/sleep 60` in systemd unit. This is separate from the Control Daemon's internal 60-second delay.
 * **Failsafe:** On service stop/kill (SIGTERM/SIGINT), immediately set all GPIOs to LOW (OFF).
 * **Pin Configuration:** All pins configured as outputs with initial state LOW (INACTIVE).
@@ -241,7 +241,7 @@ The git repository is organized as follows:
 .
 ├── .gitignore
 ├── Makefile                 # Standard install target for Yocto/Packaging
-├── requirements.txt         # Python dependencies (flask, paho-mqtt, bleak, libgpiod)
+├── requirements.txt         # Python dependencies (flask, paho-mqtt, bleak)
 ├── spec.md                  # This specification file
 ├── config/
 │   └── defaults.json        # Default settings and sensor allowlist

@@ -1,4 +1,3 @@
 flask
 paho-mqtt
 bleak
-libgpiod
