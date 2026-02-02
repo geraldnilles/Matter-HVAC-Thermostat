@@ -130,8 +130,31 @@ The system is divided into five primary daemons managed by `systemd`.
 
 ## 6. Project Repository Structure
 
-The source code in the git repository is organized as follows:
+The git repository is organized as follows:
 
-* **`src/`**: Contains all Python daemon scripts (e.g., `sensor.py`, `control.py`, `gpio.py`) in a flat directory.
-* **`systemd/`**: Contains all systemd unit files (`*.service`).
-* **`config/`**: Contains the default configuration (`defaults.json`) to be installed to `/etc/thermostat/`.
+```text
+.
+├── .gitignore
+├── requirements.txt         # Python dependencies (flask, paho-mqtt, bleak, libgpiod)
+├── spec.md                  # This specification file
+├── config/
+│   └── defaults.json        # Default settings and sensor allowlist
+├── src/
+│   ├── control.py           # Control Daemon logic
+│   ├── gpio.py              # GPIO Daemon logic
+│   ├── mqtt.py              # MQTT Daemon logic
+│   ├── sensor.py            # Sensor Daemon logic
+│   ├── setup.py             # Initialization script (parses defaults.json to IPC)
+│   ├── utils.py             # Shared constants, IPC file handlers, and locking
+│   ├── web.py               # WebUI Daemon logic
+│   └── templates/
+│       └── index.html       # Flask HTML template for WebUI
+└── systemd/
+    ├── thermostat-control.service
+    ├── thermostat-gpio.service
+    ├── thermostat-mqtt.service
+    ├── thermostat-sensor.service
+    ├── thermostat-setup.service  # One-shot service that runs src/setup.py on boot
+    └── thermostat-web.service
+
+```
