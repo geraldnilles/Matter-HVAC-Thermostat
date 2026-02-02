@@ -60,7 +60,7 @@ The system is divided into five primary daemons managed by `systemd`.
     * **Whitelist Filter:** Only process advertisements from MAC addresses explicitly defined in `/etc/thermostat/defaults.json`. Ignore all unknown devices.
     * Maintain a rolling buffer of data for each sensor (last 2 minutes) to smooth out sensor noise.
     * **Stale Data:** Discard any sensor data older than 2 minutes immediately.
-    * **History:** Maintain a ring buffer for the last 24 hours in RAM with a **1-minute sampling interval**. Each entry contains a timestamp, the aggregate house temperature, and the individual **filtered 2-minute rolling average** for every active sensor.
+    * **History:** Maintain a ring buffer for the last 24 hours in RAM with a **1-minute sampling interval**. Each entry contains a timestamp (**Unix Epoch**), the aggregate house temperature, and the individual **filtered 2-minute rolling average** for every active sensor.
 * **Sensor Aggregation Logic:**
     * **Partial Failure:** If a defined sensor goes stale (no data for > 2 mins), exclude it from the calculation. Continue operation as long as at least one sensor remains valid.
     * **Total Failure:** If *zero* sensors are valid, delete the `current_temp` IPC file to immediately trigger the Control Daemon failsafe.
@@ -135,6 +135,15 @@ The system is divided into five primary daemons managed by `systemd`.
 | `set_temp_cool` | MQTT, Web | `float` | Cooling target. |
 | `set_temp_heat` | MQTT, Web | `float` | Heating target. |
 | `hvac_action` | Control | `string` | Current action: "idle", "heating", "cooling", "fan". |
+
+### 5.1.1 Data Format Standards
+
+To ensure interoperability between Python, Bash, and web interfaces, strictly adhere to these formatting rules:
+
+* **Scalar Files (Floats/Strings):** content must be written as **UTF-8 plain text** followed immediately by a single newline character (`\n`).
+    * *Correct:* `72.5\n`
+    * *Incorrect:* `72.5` (no newline) or `72.5\0` (null terminated)
+* **Timestamps:** All timestamps (specifically in `history.json`) must be recorded as **Unix Epoch** time (numeric seconds since Jan 1, 1970).
 
 ### 5.2 Application & Configuration
 
