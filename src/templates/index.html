@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thermostat Control</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .temp-display {
+            font-size: 48px;
+            font-weight: bold;
+            text-align: center;
+            color: #2196F3;
+        }
+        .temp-label {
+            text-align: center;
+            color: #666;
+            margin-top: 5px;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 15px;
+        }
+        .stat {
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #555;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+        }
+        .control-group {
+            margin: 15px 0;
+        }
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        button {
+            flex: 1;
+            min-width: 80px;
+            padding: 10px 15px;
+            border: 2px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background: #f0f0f0;
+        }
+        button.active {
+            background: #2196F3;
+            color: white;
+            border-color: #2196F3;
+        }
+        .setpoint-control {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .setpoint-value {
+            font-size: 32px;
+            font-weight: bold;
+            min-width: 80px;
+            text-align: center;
+        }
+        .setpoint-btn {
+            width: 50px;
+            height: 50px;
+            font-size: 24px;
+            border-radius: 50%;
+        }
+        .status {
+            text-align: center;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        .status.idle { background: #e0e0e0; color: #666; }
+        .status.heating { background: #ffccbc; color: #d84315; }
+        .status.cooling { background: #b3e5fc; color: #0277bd; }
+        .status.fan { background: #c8e6c9; color: #2e7d32; }
+        #chart {
+            width: 100%;
+            height: 300px;
+        }
+        .refresh-btn {
+            width: 100%;
+            padding: 15px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .refresh-btn:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏠 Thermostat</h1>
+    
+    <div class="card">
+        <div class="temp-display" id="current-temp">--</div>
+        <div class="temp-label">Current Temperature</div>
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value" id="min-temp">--</div>
+                <div class="stat-label">Min</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="max-temp">--</div>
+                <div class="stat-label">Max</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="status idle" id="hvac-status">Idle</div>
+    </div>
+    
+    <div class="card">
+        <div class="control-group">
+            <label>System Mode</label>
+            <div class="button-group">
+                <button id="mode-off" onclick="setMode('off')">Off</button>
+                <button id="mode-heat" onclick="setMode('heat')">Heat</button>
+                <button id="mode-cool" onclick="setMode('cool')">Cool</button>
+                <button id="mode-auto" onclick="setMode('auto')">Auto</button>
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <label>Fan Mode</label>
+            <div class="button-group">
+                <button id="fan-auto" onclick="setFan('auto')">Auto</button>
+                <button id="fan-on" onclick="setFan('on')">On</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="control-group">
+            <label>Cooling Setpoint</label>
+            <div class="setpoint-control">
+                <button class="setpoint-btn" onclick="adjustSetpoint('cool', -1)">−</button>
+                <div class="setpoint-value" id="cool-setpoint">--</div>
+                <button class="setpoint-btn" onclick="adjustSetpoint('cool', 1)">+</button>
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <label>Heating Setpoint</label>
+            <div class="setpoint-control">
+                <button class="setpoint-btn" onclick="adjustSetpoint('heat', -1)">−</button>
+                <div class="setpoint-value" id="heat-setpoint">--</div>
+                <button class="setpoint-btn" onclick="adjustSetpoint('heat', 1)">+</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <label>24-Hour Temperature History</label>
+        <canvas id="chart"></canvas>
+    </div>
+    
+    <button class="refresh-btn" onclick="loadState()">Refresh</button>
+
+    <script>
+        let currentState = {};
+        
+        async function loadState() {
+            try {
+                const response = await fetch('/api/state');
+                currentState = await response.json();
+                updateUI();
+            } catch (error) {
+                console.error('Failed to load state:', error);
+            }
+        }
+        
+        function updateUI() {
+            // Temperature displays
+            document.getElementById('current-temp').textContent = 
+                currentState.current_temp ? currentState.current_temp.toFixed(1) + '°F' : '--';
+            document.getElementById('min-temp').textContent = 
+                currentState.min_temp ? currentState.min_temp.toFixed(1) : '--';
+            document.getElementById('max-temp').textContent = 
+                currentState.max_temp ? currentState.max_temp.toFixed(1) : '--';
+            
+            // HVAC status
+            const statusEl = document.getElementById('hvac-status');
+            statusEl.textContent = currentState.hvac_action || 'Idle';
+            statusEl.className = 'status ' + (currentState.hvac_action || 'idle');
+            
+            // Mode buttons
+            document.querySelectorAll('[id^="mode-"]').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('mode-' + currentState.system_mode)?.classList.add('active');
+            
+            // Fan buttons
+            document.querySelectorAll('[id^="fan-"]').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('fan-' + currentState.fan_mode)?.classList.add('active');
+            
+            // Setpoints
+            document.getElementById('cool-setpoint').textContent = 
+                currentState.set_temp_cool ? currentState.set_temp_cool.toFixed(0) : '--';
+            document.getElementById('heat-setpoint').textContent = 
+                currentState.set_temp_heat ? currentState.set_temp_heat.toFixed(0) : '--';
+            
+            // Draw chart
+            drawChart();
+        }
+        
+        async function setMode(mode) {
+            try {
+                await fetch('/api/mode', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({mode: mode})
+                });
+                loadState();
+            } catch (error) {
+                console.error('Failed to set mode:', error);
+            }
+        }
+        
+        async function setFan(fan) {
+            try {
+                await fetch('/api/fan', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({fan: fan})
+                });
+                loadState();
+            } catch (error) {
+                console.error('Failed to set fan:', error);
+            }
+        }
+        
+        async function adjustSetpoint(type, delta) {
+            const current = type === 'cool' ? currentState.set_temp_cool : currentState.set_temp_heat;
+            const newValue = current + delta;
+            try {
+                await fetch('/api/setpoint', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({type: type, value: newValue})
+                });
+                loadState();
+            } catch (error) {
+                console.error('Failed to set setpoint:', error);
+            }
+        }
+        
+        function drawChart() {
+            const canvas = document.getElementById('chart');
+            const ctx = canvas.getContext('2d');
+            const history = currentState.history || [];
+            
+            // Set canvas size
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            
+            if (history.length < 2) {
+                ctx.fillStyle = '#999';
+                ctx.textAlign = 'center';
+                ctx.fillText('Not enough data', canvas.width/2, canvas.height/2);
+                return;
+            }
+            
+            const padding = 40;
+            const chartW = canvas.width - padding * 2;
+            const chartH = canvas.height - padding * 2;
+            
+            // Find min/max for scaling
+            let minTemp = Infinity, maxTemp = -Infinity;
+            history.forEach(h => {
+                minTemp = Math.min(minTemp, h.avg);
+                maxTemp = Math.max(maxTemp, h.avg);
+            });
+            const tempRange = maxTemp - minTemp || 1;
+            
+            // Clear
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw axes
+            ctx.strokeStyle = '#ccc';
+            ctx.beginPath();
+            ctx.moveTo(padding, padding);
+            ctx.lineTo(padding, canvas.height - padding);
+            ctx.lineTo(canvas.width - padding, canvas.height - padding);
+            ctx.stroke();
+            
+            // Draw temperature line
+            ctx.strokeStyle = '#2196F3';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            history.forEach((h, i) => {
+                const x = padding + (i / (history.length - 1)) * chartW;
+                const y = canvas.height - padding - ((h.avg - minTemp) / tempRange) * chartH;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+            
+            // Draw points
+            ctx.fillStyle = '#2196F3';
+            history.forEach((h, i) => {
+                const x = padding + (i / (history.length - 1)) * chartW;
+                const y = canvas.height - padding - ((h.avg - minTemp) / tempRange) * chartH;
+                ctx.beginPath();
+                ctx.arc(x, y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            
+            // Labels
+            ctx.fillStyle = '#666';
+            ctx.font = '12px sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText(maxTemp.toFixed(1) + '°F', padding - 5, padding + 5);
+            ctx.fillText(minTemp.toFixed(1) + '°F', padding - 5, canvas.height - padding);
+        }
+        
+        // Load state on page load and every 30 seconds
+        loadState();
+        setInterval(loadState, 30000);
+    </script>
+</body>
+</html>
