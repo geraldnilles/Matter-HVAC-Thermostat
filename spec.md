@@ -21,8 +21,9 @@ The Raspberry Pi directly drives relays for the HVAC components.
 
 ### 2.2 Temperature Sensors
 
-* **Hardware:** Multiple Govee BLE sensors (specifically targeting Service UUID `0000ec88-0000-1000-8000-00805f9b34fb`).
+* **Hardware:** Govee H5075 BLE temperature sensors (Service UUID `0000ec88-0000-1000-8000-00805f9b34fb`).
 * **Protocol:** Bluetooth Low Energy (BLE) via `bleak` Python library.
+* **Data Format:** Temperature encoded in manufacturer data as signed fixed-point with 2 decimal places (temp_c * 10000 + humidity * 100).
 
 ## 3. Software Architecture
 
@@ -42,7 +43,7 @@ The Raspberry Pi directly drives relays for the HVAC components.
     * **General Rule:** Single-writer, multiple-reader.
     * **Exception:** `thermostat-mqtt` and `thermostat-web` may both write to `set_temp_*` and `mode` files.
     * **Atomic Operations:** **Critical.** All writes to shared state files must be atomic to prevent race conditions or partial reads.
-    * **Mechanism:** Writers must create a **unique** temporary file (e.g., `<target>.tmp.<PID>`), write the content, flush to disk (`fsync`), and finally atomically rename (`os.replace`) the temporary file to the target filename.
+    * **Mechanism:** Writers must create a **unique** temporary file using process ID (e.g., `<target>.tmp.<PID>`), write the content, flush to disk (`fsync`), and finally atomically rename (`os.replace`) the temporary file to the target filename.
     * **Reasoning:** Unique filenames ensure that concurrent writers (e.g., MQTT and WebUI updating settings simultaneously) do not overwrite each other's temporary buffers before the atomic commit.
 
 ### 3.3 Configuration & Initialization
@@ -75,7 +76,10 @@ The system is divided into five primary daemons managed by `systemd`.
     * **Whitelist Filter:** Only process advertisements from MAC addresses explicitly defined in `/etc/thermostat/defaults.json`. Ignore all unknown devices.
     * Maintain a rolling buffer of data for each sensor (last 2 minutes) to smooth out sensor noise.
     * **Stale Data:** Discard any sensor data older than 2 minutes immediately.
-    * **History:** Maintain a ring buffer for the last 24 hours in RAM with a **1-minute sampling interval**. Each entry contains a timestamp (**Unix Epoch**), the aggregate house temperature, and the individual **filtered 2-minute rolling average** for every active sensor.
+    * **History:** Maintain a ring buffer for the last 24 hours in RAM with a **1-minute sampling interval** (1440 entries max). Each entry is a JSON object with:
+      * `t`: Unix Epoch timestamp (integer seconds)
+      * `avg`: Average temperature across all valid sensors (float, 2 decimal places)
+      * `sensors`: Object mapping sensor location names to their filtered 2-minute rolling average temperatures
 * **Sensor Aggregation Logic:**
     * **Partial Failure:** If a defined sensor goes stale (no data for > 2 mins), exclude it from the calculation. Continue operation as long as at least one sensor remains valid.
     * **Total Failure:** If *zero* sensors are valid, delete the `current_temp` IPC file to immediately trigger the Control Daemon failsafe.
@@ -105,7 +109,7 @@ The system is divided into five primary daemons managed by `systemd`.
     * **Startup Safety:** Upon service start (or restart), the daemon must pause for 60 seconds before calculating any logic or writing to `hvac_action`. This safety delay is implemented internally within the Control Daemon (constant `STARTUP_DELAY = 60`). This ensures compressor safety if the daemon crashes and restarts, as the internal memory of the "last state change" is lost.
     * **Minimum Dwell Time:** Enforce a strict 1-minute duration for all states. Once the system enters a state (idle, heating, cooling, fan), it must remain in that state for at least 60 seconds before transitioning to any other state. **This rule overrides all other inputs, including manual user changes to mode or setpoint.**
         * *Example:* If the system is actively cooling and the user switches the mode to "Off", the system **MUST** complete the full 60-second cooling cycle before shutting down relays.
-    * **Auto Separation:** Enforce minimum 7°F gap between Heat/Cool setpoints. When setpoints violate this gap (e.g., setting heat to 72°F when cool is 75°F), both setpoints are automatically adjusted to maintain the average temperature while enforcing the 7°F minimum separation (e.g., adjusting to heat=67.5°F and cool=74.5°F).
+    * **Auto Separation:** Enforce minimum 7°F gap between Heat/Cool setpoints. When setpoints violate this gap (e.g., setting heat to 72°F when cool is 75°F), both setpoints are automatically adjusted to maintain the average temperature while enforcing the 7°F minimum separation (e.g., adjusting to heat=67.5°F and cool=74.5°F). Adjusted setpoints are written back to IPC files so the UI displays effective values.
     * **Data Failsafe:** If no fresh sensor data is available (cannot read `min_temp` or `max_temp`), force system to "idle" state (all relays OFF).
 
 * **Output:** Writes intended state to `hvac_action` (IPC).
@@ -114,9 +118,10 @@ The system is divided into five primary daemons managed by `systemd`.
 
 * **Responsibility:** The "muscle." Reads desired state and actuates hardware.
 * **Inputs:** `hvac_action` (IPC).
-* **Tools:** `libgpiod`.
+* **Tools:** `libgpiod` Python bindings (`gpiod` module).
 * **Startup Safety:** Service must wait 60 seconds after system boot before starting (e.g., `ExecStartPre=/bin/sleep 60`) to prevent short-cycling after power loss.
-* **Failsafe:** On service stop/kill, immediately set all GPIOs to 0.
+* **Failsafe:** On service stop/kill (SIGTERM/SIGINT), immediately set all GPIOs to LOW (OFF).
+* **Pin Configuration:** All pins configured as outputs with initial state LOW (INACTIVE).
 
 ### 4.4 MQTT Daemon (`thermostat-mqtt`)
 
@@ -130,7 +135,16 @@ The system is divided into five primary daemons managed by `systemd`.
         * `thermostat/fan/set` - Values: `auto`, `on`
         * `thermostat/cool/set` - Float value for cooling setpoint
         * `thermostat/heat/set` - Float value for heating setpoint
-* **Matter Compatible Attributes:** Maps to `LocalTemperature`, `OccupiedCoolingSetpoint`, `OccupiedHeatingSetpoint`, `SystemMode`, `FanMode`, `ThermostatRunningState`.
+* **Matter Compatible Attributes:** Maps to:
+  * `local_temperature`: Current average temperature
+  * `min_temperature`: Minimum sensor reading (for heating logic)
+  * `max_temperature`: Maximum sensor reading (for cooling logic)
+  * `system_mode`: Current mode (off/cool/heat/auto)
+  * `fan_mode`: Current fan mode (auto/on)
+  * `occupied_cooling_setpoint`: Cooling setpoint
+  * `occupied_heating_setpoint`: Heating setpoint
+  * `thermostat_running_state`: Current HVAC action (idle/heating/cooling/fan)
+* **Availability:** Publishes `online`/`offline` status to `thermostat/availability` with retain flag.
 * **Output:** Writes to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat`.
 
 ### 4.5 WebUI Daemon (`thermostat-web`)
@@ -144,7 +158,7 @@ The system is divided into five primary daemons managed by `systemd`.
     * `GET /` - HTML interface
     * `GET /api/state` - JSON with current state (temps, modes, setpoints, action)
     * `POST /api/mode` - Body: `{"mode": "off"|"cool"|"heat"|"auto"}`
-    * `POST /api/fan` - Body: `{"mode": "auto"|"on"}`
+    * `POST /api/fan` - Body: `{"fan": "auto"|"on"}`
     * `POST /api/setpoint` - Body: `{"type": "cool"|"heat", "value": float}`
 
 * **Output:** Writes to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat`.
@@ -161,8 +175,8 @@ The system is divided into five primary daemons managed by `systemd`.
 | `history.json` | Sensor | `JSON` | List of objects: `[{"t": timestamp, "avg": float, "sensors": {"id": float, ...}}, ...]` |
 | `system_mode` | MQTT, Web | `string` | "off", "cool", "heat", "auto". |
 | `fan_mode` | MQTT, Web | `string` | "auto", "on". |
-| `set_temp_cool` | MQTT, Web | `float` | Cooling target. |
-| `set_temp_heat` | MQTT, Web | `float` | Heating target. |
+| `set_temp_cool` | MQTT, Web | `float` | Cooling target. Both services may write concurrently. |
+| `set_temp_heat` | MQTT, Web | `float` | Heating target. Both services may write concurrently. |
 | `hvac_action` | Control | `string` | Current action: "idle", "heating", "cooling", "fan". |
 
 ### 5.1.1 Data Format Standards
@@ -172,6 +186,7 @@ To ensure interoperability between Python, Bash, and web interfaces, strictly ad
 * **Scalar Files (Floats/Strings):** content must be written as **UTF-8 plain text** followed immediately by a single newline character (`\n`).
     * *Correct:* `72.5\n`
     * *Incorrect:* `72.5` (no newline) or `72.5\0` (null terminated)
+* **Implementation:** All writes use atomic rename via unique PID-based temp files to prevent race conditions between concurrent writers (e.g., MQTT and WebUI simultaneously updating setpoints).
 * **Timestamps:** All timestamps (specifically in `history.json`) must be recorded as **Unix Epoch** time (numeric seconds since Jan 1, 1970).
 
 ### 5.2 Application & Configuration
