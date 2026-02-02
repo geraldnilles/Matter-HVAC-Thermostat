@@ -125,7 +125,7 @@ The system is divided into five primary daemons managed by `systemd`.
 
 ### 4.4 MQTT Daemon (`thermostat-mqtt`)
 
-* **Responsibility:** Primary control interface via Home Assistant.
+* **Responsibility:** Primary control interface via Home Assistant. Can write to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat` (concurrent with WebUI).
 * **Protocol:** MQTT Climate entity.
 * **Topic Structure:**
     * **State Publication:** `thermostat/state` (JSON with temperature, mode, setpoints, action)
@@ -149,8 +149,8 @@ The system is divided into five primary daemons managed by `systemd`.
 
 ### 4.5 WebUI Daemon (`thermostat-web`)
 
-* **Responsibility:** Backup control interface.
-* **Tech Stack:** Python Flask.
+* **Responsibility:** Backup control interface. Can write to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat` (concurrent with MQTT).
+* **Tech Stack:** Python Flask with threaded request handling.
 * **Functionality:**
     * Simple HTML interface for manual control.
     * Visualizes 24-hour temperature history graph (reads `history.json`).
