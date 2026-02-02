@@ -142,9 +142,17 @@ class ControlDaemon:
             return HvacAction.IDLE
         
         # Enforce setpoint separation
+        original_cool = set_temp_cool
+        original_heat = set_temp_heat
         set_temp_cool, set_temp_heat = self._enforce_setpoint_separation(
             set_temp_cool, set_temp_heat
         )
+        
+        # Write back adjusted setpoints if they changed so UI shows effective values
+        if set_temp_cool != original_cool:
+            write_scalar(SET_TEMP_COOL_FILE, set_temp_cool)
+        if set_temp_heat != original_heat:
+            write_scalar(SET_TEMP_HEAT_FILE, set_temp_heat)
         
         # Determine what heating and cooling want to do
         # Heating: compare min_temp (coldest room) against set_temp_heat

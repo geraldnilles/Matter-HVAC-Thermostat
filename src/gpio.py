@@ -96,9 +96,8 @@ def signal_handler(signum, frame):
 
 def main():
     """Main entry point."""
-    # Startup safety delay: prevent short-cycling after power loss
-    print("GPIO Daemon starting, waiting 60 seconds for system stability...")
-    time.sleep(60)
+    # Startup safety delay handled by systemd (ExecStartPre=/bin/sleep 60)
+    print("GPIO Daemon starting...")
     
     # Setup signal handlers for graceful shutdown (failsafe to OFF)
     signal.signal(signal.SIGTERM, signal_handler)

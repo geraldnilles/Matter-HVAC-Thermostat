@@ -1,0 +1,10 @@
+{
+  "system_mode": "off",
+  "fan_mode": "auto",
+  "set_temp_cool": 74.0,
+  "set_temp_heat": 70.0,
+  "sensors": {
+    "A4:C1:38:00:00:01": "Living Room",
+    "A4:C1:38:00:00:02": "Bedroom"
+  }
+}
