@@ -21,7 +21,7 @@ The Raspberry Pi directly drives relays for the HVAC components.
 
 ### 2.2 Temperature Sensors
 
-* **Hardware:** Multiple Govee BLE sensors.
+* **Hardware:** Multiple Govee BLE sensors (specifically targeting Service UUID `0000ec88-0000-1000-8000-00805f9b34fb`).
 * **Protocol:** Bluetooth Low Energy (BLE) via `bleak` Python library.
 
 ## 3. Software Architecture
@@ -37,16 +37,31 @@ The Raspberry Pi directly drives relays for the HVAC components.
 
 * **Mechanism:** Filesystem-based state sharing.
 * **Location:** `/run/thermostat/` (tmpfs).
+* **File Permissions:** All IPC files are created with mode `0644` (world-readable, owner-writable).
 * **Concurrency:**
     * **General Rule:** Single-writer, multiple-reader.
-    * **Exception:** `thermostat-mqtt` and `thermostat-web` may both write to `set_temp` and `mode` files.
+    * **Exception:** `thermostat-mqtt` and `thermostat-web` may both write to `set_temp_*` and `mode` files.
     * **Atomic Operations:** **Critical.** All writes to shared state files must be atomic to prevent race conditions or partial reads.
     * **Mechanism:** Writers must create a **unique** temporary file (e.g., `<target>.tmp.<PID>`), write the content, flush to disk (`fsync`), and finally atomically rename (`os.replace`) the temporary file to the target filename.
     * **Reasoning:** Unique filenames ensure that concurrent writers (e.g., MQTT and WebUI updating settings simultaneously) do not overwrite each other's temporary buffers before the atomic commit.
 
 ### 3.3 Configuration & Initialization
 
-* **Static Configuration:** Stored in `/etc/thermostat/defaults.json`. This includes the startup setpoints, modes, and an **allowlist of sensor MAC addresses** mapped to human-readable location names (e.g., `"A4:C1:38...": "Living Room"`).
+* **Static Configuration:** Stored in `/etc/thermostat/defaults.json`. This includes the startup setpoints, modes, and an **allowlist of sensor MAC addresses** mapped to human-readable location names.
+
+**Configuration Schema:**
+```json
+{
+  "sensors": {
+    "A4:C1:38:XX:XX:XX": "Living Room",
+    "A4:C1:38:YY:YY:YY": "Bedroom"
+  },
+  "system_mode": "off",
+  "fan_mode": "auto",
+  "set_temp_cool": 75.0,
+  "set_temp_heat": 70.0
+}
+```
 * **Boot Process:** On system startup, before any daemons launch, a one-shot initialization service copies values from `defaults.json` to the corresponding files in `/run/thermostat/` to seed the system state.
 
 ## 4. System Components (Services)
@@ -87,10 +102,10 @@ The system is divided into five primary daemons managed by `systemd`.
     * *Example (Heating):* If Setpoint is 70°F -> Turn ON at 69.5°F, Turn OFF at 70.5°F.
     * *Example (Cooling):* If Setpoint is 75°F -> Turn ON at 75.5°F, Turn OFF at 74.5°F.
 * **Safety Guards:**
-    * **Startup Safety:** Upon service start (or restart), the daemon must pause for 60 seconds before calculating any logic or writing to `hvac_action`. This ensures compressor safety if the daemon crashes and restarts, as the internal memory of the "last state change" is lost.
+    * **Startup Safety:** Upon service start (or restart), the daemon must pause for 60 seconds before calculating any logic or writing to `hvac_action`. This safety delay is implemented internally within the Control Daemon (constant `STARTUP_DELAY = 60`). This ensures compressor safety if the daemon crashes and restarts, as the internal memory of the "last state change" is lost.
     * **Minimum Dwell Time:** Enforce a strict 1-minute duration for all states. Once the system enters a state (idle, heating, cooling, fan), it must remain in that state for at least 60 seconds before transitioning to any other state. **This rule overrides all other inputs, including manual user changes to mode or setpoint.**
         * *Example:* If the system is actively cooling and the user switches the mode to "Off", the system **MUST** complete the full 60-second cooling cycle before shutting down relays.
-    * **Auto Separation:** Enforce minimum 7°F gap between Heat/Cool setpoints.
+    * **Auto Separation:** Enforce minimum 7°F gap between Heat/Cool setpoints. When setpoints violate this gap (e.g., setting heat to 72°F when cool is 75°F), both setpoints are automatically adjusted to maintain the average temperature while enforcing the 7°F minimum separation (e.g., adjusting to heat=67.5°F and cool=74.5°F).
     * **Data Failsafe:** If no fresh sensor data is available (cannot read `min_temp` or `max_temp`), force system to "idle" state (all relays OFF).
 
 * **Output:** Writes intended state to `hvac_action` (IPC).
@@ -107,8 +122,16 @@ The system is divided into five primary daemons managed by `systemd`.
 
 * **Responsibility:** Primary control interface via Home Assistant.
 * **Protocol:** MQTT Climate entity.
-* **Matter Compatible Attributes:** `LocalTemperature`, `OccupiedCoolingSetpoint`, `OccupiedHeatingSetpoint`, `SystemMode`, `FanMode`, `ThermostatRunningState`.
-* **Output:** Writes to `system_mode`, `fan_mode`, `set_temp_*`.
+* **Topic Structure:**
+    * **State Publication:** `thermostat/state` (JSON with temperature, mode, setpoints, action)
+    * **Availability:** `thermostat/availability` (`online`/`offline`)
+    * **Command Topics (Inbound):**
+        * `thermostat/mode/set` - Values: `off`, `cool`, `heat`, `auto`
+        * `thermostat/fan/set` - Values: `auto`, `on`
+        * `thermostat/cool/set` - Float value for cooling setpoint
+        * `thermostat/heat/set` - Float value for heating setpoint
+* **Matter Compatible Attributes:** Maps to `LocalTemperature`, `OccupiedCoolingSetpoint`, `OccupiedHeatingSetpoint`, `SystemMode`, `FanMode`, `ThermostatRunningState`.
+* **Output:** Writes to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat`.
 
 ### 4.5 WebUI Daemon (`thermostat-web`)
 
@@ -117,8 +140,14 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Functionality:**
     * Simple HTML interface for manual control.
     * Visualizes 24-hour temperature history graph (reads `history.json`).
+* **REST API Endpoints:**
+    * `GET /` - HTML interface
+    * `GET /api/state` - JSON with current state (temps, modes, setpoints, action)
+    * `POST /api/mode` - Body: `{"mode": "off"|"cool"|"heat"|"auto"}`
+    * `POST /api/fan` - Body: `{"mode": "auto"|"on"}`
+    * `POST /api/setpoint` - Body: `{"type": "cool"|"heat", "value": float}`
 
-* **Output:** Writes to `system_mode`, `fan_mode`, `set_temp_*`.
+* **Output:** Writes to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat`.
 
 ## 5. File System & Installation Paths
 
