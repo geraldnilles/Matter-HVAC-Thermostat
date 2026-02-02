@@ -1,0 +1,15 @@
+[Unit]
+Description=Thermostat Sensor Daemon (BLE Temperature Sensors)
+After=thermostat-setup.service bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+ExecStart=/usr/share/thermostat/sensor.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

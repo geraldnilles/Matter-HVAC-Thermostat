@@ -1,0 +1,15 @@
+[Unit]
+Description=Thermostat MQTT Daemon (Home Assistant Integration)
+After=thermostat-setup.service thermostat-control.service mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+ExecStart=/usr/share/thermostat/mqtt.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

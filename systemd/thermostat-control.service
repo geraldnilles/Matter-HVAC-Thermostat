@@ -1,0 +1,14 @@
+[Unit]
+Description=Thermostat Control Daemon (Thermostat Logic)
+After=thermostat-setup.service thermostat-sensor.service
+
+[Service]
+Type=simple
+ExecStart=/usr/share/thermostat/control.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

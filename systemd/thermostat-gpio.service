@@ -1,0 +1,15 @@
+[Unit]
+Description=Thermostat GPIO Daemon (HVAC Relay Control)
+After=thermostat-setup.service thermostat-control.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sleep 60
+ExecStart=/usr/share/thermostat/gpio.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=Thermostat Initialization Service
+DefaultDependencies=no
+Before=thermostat-sensor.service thermostat-control.service thermostat-gpio.service thermostat-mqtt.service thermostat-web.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/share/thermostat/setup.py
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
