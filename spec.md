@@ -40,7 +40,9 @@ The Raspberry Pi directly drives relays for the HVAC components.
 * **Concurrency:**
     * **General Rule:** Single-writer, multiple-reader.
     * **Exception:** `thermostat-mqtt` and `thermostat-web` may both write to `set_temp` and `mode` files.
-    * **Atomic Operations:** **Critical.** All writes to shared state files must be atomic (write to temporary file -> `mv` to target) to prevent race conditions or partial reads.
+    * **Atomic Operations:** **Critical.** All writes to shared state files must be atomic to prevent race conditions or partial reads.
+    * **Mechanism:** Writers must create a **unique** temporary file (e.g., `<target>.tmp.<PID>`), write the content, flush to disk (`fsync`), and finally atomically rename (`os.replace`) the temporary file to the target filename.
+    * **Reasoning:** Unique filenames ensure that concurrent writers (e.g., MQTT and WebUI updating settings simultaneously) do not overwrite each other's temporary buffers before the atomic commit.
 
 ### 3.3 Configuration & Initialization
 
