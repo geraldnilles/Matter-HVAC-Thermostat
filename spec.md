@@ -81,7 +81,9 @@ The system is divided into five primary daemons managed by `systemd`.
     * **System Mode "off":** The Compressor and Heat relays are forced **OFF**.
     * **Fan Mode "auto":** The Fan relay matches the state of the Compressor/Heat relays (ON when active, OFF when idle).
 
-* **Hysteresis:** +/- 0.5°F (1°F total swing).
+* **Hysteresis:** +/- 0.5°F (1°F total swing). Logic is **Centered** on the setpoint.
+    * *Example (Heating):* If Setpoint is 70°F -> Turn ON at 69.5°F, Turn OFF at 70.5°F.
+    * *Example (Cooling):* If Setpoint is 75°F -> Turn ON at 75.5°F, Turn OFF at 74.5°F.
 * **Safety Guards:**
     * **Minimum Dwell Time:** Enforce a strict 1-minute duration for all states. Once the system enters a state (idle, heating, cooling, fan), it must remain in that state for at least 60 seconds before transitioning to any other state. **This rule overrides all other inputs, including manual user changes to mode or setpoint.**
         * *Example:* If the system is actively cooling and the user switches the mode to "Off", the system **MUST** complete the full 60-second cooling cycle before shutting down relays.
