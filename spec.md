@@ -63,7 +63,17 @@ The Raspberry Pi directly drives relays for the HVAC components.
   "set_temp_heat": 70.0
 }
 ```
-* **Boot Process:** On system startup, before any daemons launch, a one-shot initialization service copies values from `defaults.json` to the corresponding files in `/run/thermostat/` to seed the system state.
+* **Boot Process:** On system startup, before any daemons launch, a one-shot initialization service (`thermostat-setup`) copies values from `defaults.json` to the corresponding files in `/run/thermostat/` to seed the system state.
+
+### 3.4 Service Dependencies
+
+Services start in the following order, managed by systemd `After=` directives:
+
+1. **thermostat-setup** - Runs first after filesystems are available
+2. **thermostat-sensor** - Starts after setup and bluetooth target
+3. **thermostat-control** - Starts after setup and sensor (requires temperature data)
+4. **thermostat-gpio** - Starts after setup and control (60-second delay via `ExecStartPre`)
+5. **thermostat-mqtt** / **thermostat-web** - Start after setup and control (can run concurrently)
 
 ## 4. System Components (Services)
 
@@ -74,7 +84,7 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Responsibility:** Scans for BLE advertisements and maintains valid temperature readings.
 * **Logic:**
     * **Whitelist Filter:** Only process advertisements from MAC addresses explicitly defined in `/etc/thermostat/defaults.json`. Ignore all unknown devices.
-    * Maintain a rolling buffer of data for each sensor (last 2 minutes) to smooth out sensor noise.
+    * **Rolling Buffer:** Maintain a 2-minute rolling buffer of readings for each sensor to smooth noise. New readings replace old ones beyond the 2-minute window.
     * **Stale Data:** Discard any sensor data older than 2 minutes immediately.
     * **History:** Maintain a ring buffer for the last 24 hours in RAM with a **1-minute sampling interval** (1440 entries max). Each entry is a JSON object with:
       * `t`: Unix Epoch timestamp (integer seconds)
@@ -98,18 +108,24 @@ The system is divided into five primary daemons managed by `systemd`.
     * **Heating Rules:** Compare `min_temp` against `set_temp_heat`. (Heat the coldest room).
     * **Cooling Rules:** Compare `max_temp` against `set_temp_cool`. (Cool the hottest room).
 * **Logic Priorities:**
-    * **Fan Mode "on":** The Fan relay is **ON**, regardless of `system_mode`. This allows air circulation even if `system_mode` is "off".
+    * **Fan Mode "on":** The Fan relay is **ON**, regardless of `system_mode`. This allows air circulation even if `system_mode` is "off". If the system is actively heating or cooling, it maintains that state; only when idle does "fan on" switch to fan-only mode.
     * **System Mode "off":** The Compressor and Heat relays are forced **OFF**.
     * **Fan Mode "auto":** The Fan relay matches the state of the Compressor/Heat relays (ON when active, OFF when idle).
 
 * **Hysteresis:** +/- 0.5°F (1°F total swing). Logic is **Centered** on the setpoint.
     * *Example (Heating):* If Setpoint is 70°F -> Turn ON at 69.5°F, Turn OFF at 70.5°F.
     * *Example (Cooling):* If Setpoint is 75°F -> Turn ON at 75.5°F, Turn OFF at 74.5°F.
+
+* **Auto Mode Conflict Resolution:** When `system_mode` is "auto" and both heating and cooling demand exist simultaneously (e.g., different rooms have extreme temperatures), the system compares the temperature differences:
+    * Calculate `heat_diff = set_temp_heat - min_temp` and `cool_diff = max_temp - set_temp_cool`
+    * If `heat_diff > cool_diff`, prioritize heating; otherwise prioritize cooling
+    * This prevents rapid switching between heating and cooling
+
 * **Safety Guards:**
-    * **Startup Safety:** Upon service start (or restart), the daemon must pause for 60 seconds before calculating any logic or writing to `hvac_action`. This safety delay is implemented internally within the Control Daemon (constant `STARTUP_DELAY = 60`). This ensures compressor safety if the daemon crashes and restarts, as the internal memory of the "last state change" is lost.
+    * **Startup Safety:** Upon service start (or restart), the daemon must pause for 60 seconds internally before calculating any logic or writing to `hvac_action`. This safety delay is implemented within the Control Daemon Python code (`STARTUP_DELAY = 60`). This ensures compressor safety if the daemon crashes and restarts, as the internal memory of the "last state change" is lost.
     * **Minimum Dwell Time:** Enforce a strict 1-minute duration for all states. Once the system enters a state (idle, heating, cooling, fan), it must remain in that state for at least 60 seconds before transitioning to any other state. **This rule overrides all other inputs, including manual user changes to mode or setpoint.**
         * *Example:* If the system is actively cooling and the user switches the mode to "Off", the system **MUST** complete the full 60-second cooling cycle before shutting down relays.
-    * **Auto Separation:** Enforce minimum 7°F gap between Heat/Cool setpoints. When setpoints violate this gap (e.g., setting heat to 72°F when cool is 75°F), both setpoints are automatically adjusted to maintain the average temperature while enforcing the 7°F minimum separation (e.g., adjusting to heat=67.5°F and cool=74.5°F). Adjusted setpoints are written back to IPC files so the UI displays effective values.
+    * **Auto Separation:** Enforce minimum 7°F gap between Heat/Cool setpoints. When setpoints violate this gap (e.g., setting heat to 72°F when cool is 75°F), **both** setpoints are automatically adjusted symmetrically around their average to maintain the 7°F minimum separation (e.g., adjusting to heat=70°F and cool=77°F). Adjusted setpoints are immediately written back to IPC files so the UI displays effective values.
     * **Data Failsafe:** If no fresh sensor data is available (cannot read `min_temp` or `max_temp`), force system to "idle" state (all relays OFF).
 
 * **Output:** Writes intended state to `hvac_action` (IPC).
@@ -119,7 +135,7 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Responsibility:** The "muscle." Reads desired state and actuates hardware.
 * **Inputs:** `hvac_action` (IPC).
 * **Tools:** `libgpiod` Python bindings (`gpiod` module).
-* **Startup Safety:** Service must wait 60 seconds after system boot before starting (e.g., `ExecStartPre=/bin/sleep 60`) to prevent short-cycling after power loss.
+* **Startup Safety:** Service waits 60 seconds after system boot before starting via `ExecStartPre=/bin/sleep 60` in systemd unit. This is separate from the Control Daemon's internal 60-second delay.
 * **Failsafe:** On service stop/kill (SIGTERM/SIGINT), immediately set all GPIOs to LOW (OFF).
 * **Pin Configuration:** All pins configured as outputs with initial state LOW (INACTIVE).
 
@@ -145,15 +161,18 @@ The system is divided into five primary daemons managed by `systemd`.
   * `occupied_heating_setpoint`: Heating setpoint
   * `thermostat_running_state`: Current HVAC action (idle/heating/cooling/fan)
 * **Availability:** Publishes `online`/`offline` status to `thermostat/availability` with retain flag.
+* **Update Interval:** Publishes state every 5 seconds.
 * **Output:** Writes to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat`.
 
 ### 4.5 WebUI Daemon (`thermostat-web`)
 
 * **Responsibility:** Backup control interface. Can write to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat` (concurrent with MQTT).
-* **Tech Stack:** Python Flask with threaded request handling.
+* **Tech Stack:** Python Flask with threaded request handling (`threaded=True`).
+* **Network:** Binds to `0.0.0.0:5000`.
 * **Functionality:**
     * Simple HTML interface for manual control.
     * Visualizes 24-hour temperature history graph (reads `history.json`).
+    * Auto-refreshes state every 30 seconds via JavaScript.
 * **REST API Endpoints:**
     * `GET /` - HTML interface
     * `GET /api/state` - JSON with current state (temps, modes, setpoints, action)
@@ -175,8 +194,8 @@ The system is divided into five primary daemons managed by `systemd`.
 | `history.json` | Sensor | `JSON` | List of objects: `[{"t": timestamp, "avg": float, "sensors": {"id": float, ...}}, ...]` |
 | `system_mode` | MQTT, Web | `string` | "off", "cool", "heat", "auto". |
 | `fan_mode` | MQTT, Web | `string` | "auto", "on". |
-| `set_temp_cool` | MQTT, Web | `float` | Cooling target. Both services may write concurrently. |
-| `set_temp_heat` | MQTT, Web | `float` | Heating target. Both services may write concurrently. |
+| `set_temp_cool` | MQTT, Web, Control | `float` | Cooling target. May be adjusted by Control Daemon to enforce 7°F gap. |
+| `set_temp_heat` | MQTT, Web, Control | `float` | Heating target. May be adjusted by Control Daemon to enforce 7°F gap. |
 | `hvac_action` | Control | `string` | Current action: "idle", "heating", "cooling", "fan". |
 
 ### 5.1.1 Data Format Standards
@@ -186,7 +205,7 @@ To ensure interoperability between Python, Bash, and web interfaces, strictly ad
 * **Scalar Files (Floats/Strings):** content must be written as **UTF-8 plain text** followed immediately by a single newline character (`\n`).
     * *Correct:* `72.5\n`
     * *Incorrect:* `72.5` (no newline) or `72.5\0` (null terminated)
-* **Implementation:** All writes use atomic rename via unique PID-based temp files to prevent race conditions between concurrent writers (e.g., MQTT and WebUI simultaneously updating setpoints).
+* **Implementation:** All writes use atomic rename via unique PID-based temp files (e.g., `filename.tmp.1234`) to prevent race conditions between concurrent writers (e.g., MQTT and WebUI simultaneously updating setpoints).
 * **Timestamps:** All timestamps (specifically in `history.json`) must be recorded as **Unix Epoch** time (numeric seconds since Jan 1, 1970).
 
 ### 5.2 Application & Configuration
