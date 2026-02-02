@@ -139,6 +139,22 @@ The system is divided into five primary daemons managed by `systemd`.
 | `/etc/thermostat/defaults.json` | Persistent configuration file (sensor allowlist, default setpoints). |
 | `/etc/systemd/system/` | Systemd unit files (`thermostat-*.service`). |
 
+### 5.3 Installation Mechanism
+
+* **Tool:** Standard GNU `Makefile`.
+* **Target:** `make install`
+* **Variables:** The Makefile must support standard override variables for packaging:
+    * `DESTDIR`: Root directory for packaging (e.g., Yocto build root).
+    * `PREFIX`: Installation prefix (default: `/usr`).
+    * `SYSCONFDIR`: Configuration directory (default: `/etc`).
+    * `UNITDIR`: Systemd unit directory (default: `/etc/systemd/system`, configurable to `/lib/systemd/system`).
+* **Actions:**
+    * Create necessary directory structures (e.g., `$(DESTDIR)$(PREFIX)/share/thermostat/`).
+    * Install Python source files to `$(DESTDIR)$(PREFIX)/share/thermostat/`.
+    * Install Templates to `$(DESTDIR)$(PREFIX)/share/thermostat/templates/`.
+    * Install Default Configuration to `$(DESTDIR)$(SYSCONFDIR)/thermostat/`.
+    * Install Systemd Units to `$(DESTDIR)$(UNITDIR)/`.
+
 ## 6. Project Repository Structure
 
 The git repository is organized as follows:
@@ -146,6 +162,7 @@ The git repository is organized as follows:
 ```text
 .
 ├── .gitignore
+├── Makefile                 # Standard install target for Yocto/Packaging
 ├── requirements.txt         # Python dependencies (flask, paho-mqtt, bleak, libgpiod)
 ├── spec.md                  # This specification file
 ├── config/
