@@ -114,7 +114,9 @@ The system is divided into five primary daemons managed by `systemd`.
 
 * **Output:** Writes to `system_mode`, `fan_mode`, `set_temp_*`.
 
-## 5. File System Structure (`/run/thermostat/`)
+## 5. File System & Installation Paths
+
+### 5.1 Runtime IPC (tmpfs: `/run/thermostat/`)
 
 | File Name | Writer(s) | Content | Description |
 | --- | --- | --- | --- |
@@ -127,6 +129,15 @@ The system is divided into five primary daemons managed by `systemd`.
 | `set_temp_cool` | MQTT, Web | `float` | Cooling target. |
 | `set_temp_heat` | MQTT, Web | `float` | Heating target. |
 | `hvac_action` | Control | `string` | Current action: "idle", "heating", "cooling", "fan". |
+
+### 5.2 Application & Configuration
+
+| Directory/File | Description |
+| --- | --- |
+| `/usr/share/thermostat/` | Main installation directory. Contains Python logic (`src/*.py`). |
+| `/usr/share/thermostat/templates/` | Web interface templates (`index.html`). |
+| `/etc/thermostat/defaults.json` | Persistent configuration file (sensor allowlist, default setpoints). |
+| `/etc/systemd/system/` | Systemd unit files (`thermostat-*.service`). |
 
 ## 6. Project Repository Structure
 
