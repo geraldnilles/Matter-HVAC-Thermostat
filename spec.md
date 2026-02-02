@@ -84,6 +84,7 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Hysteresis:** +/- 0.5°F (1°F total swing).
 * **Safety Guards:**
     * **Minimum Dwell Time:** Enforce a strict 1-minute duration for all states. Once the system enters a state (idle, heating, cooling, fan), it must remain in that state for at least 60 seconds before transitioning to any other state. **This rule overrides all other inputs, including manual user changes to mode or setpoint.**
+        * *Example:* If the system is actively cooling and the user switches the mode to "Off", the system **MUST** complete the full 60-second cooling cycle before shutting down relays.
     * **Auto Separation:** Enforce minimum 7°F gap between Heat/Cool setpoints.
     * **Data Failsafe:** If no fresh sensor data is available (cannot read `min_temp` or `max_temp`), force system to "idle" state (all relays OFF).
 
