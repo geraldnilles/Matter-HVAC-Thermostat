@@ -7,57 +7,47 @@ Uses libgpiod for hardware control.
 """
 
 import signal
+import subprocess
 import sys
 import time
-
-import gpiod
-from gpiod.line import Direction, Value
 
 from utils import HVAC_ACTION_FILE, read_file
 
 # GPIO pin definitions (BCM numbering per spec 2.1)
-PIN_FAN = 20
-PIN_COMPRESSOR = 21
-PIN_HEAT = 26
+PINS = {"fan": 20, "compressor": 21, "heat": 26}
 
-CHIP_PATH = "/dev/gpiochip0"
+CHIP = "gpiochip0"
 POLL_INTERVAL = 1.0  # seconds
 
-# Global references for signal handler cleanup
-lines = None
-
-
-def setup_gpio():
-    """Initialize GPIO lines as outputs, all LOW."""
-    global lines
-    
-    chip = gpiod.Chip(CHIP_PATH)
-    
-    # Request lines as outputs, initially LOW (OFF - safety)
-    lines = chip.request_lines(
-        consumer="thermostat-gpio",
-        config={
-            PIN_FAN: gpiod.LineSettings(direction=Direction.OUTPUT, output_value=Value.INACTIVE),
-            PIN_COMPRESSOR: gpiod.LineSettings(direction=Direction.OUTPUT, output_value=Value.INACTIVE),
-            PIN_HEAT: gpiod.LineSettings(direction=Direction.OUTPUT, output_value=Value.INACTIVE),
-        }
-    )
-    print("GPIO initialized: Fan=20, Compressor=21, Heat=26")
+# Global reference to the gpioset subprocess
+gpio_process = None
 
 
 def set_all_low():
-    """Set all GPIO pins to LOW (failsafe)."""
-    if lines:
-        lines.set_values({
-            PIN_FAN: Value.INACTIVE,
-            PIN_COMPRESSOR: Value.INACTIVE,
-            PIN_HEAT: Value.INACTIVE,
-        })
+    """Set all GPIO pins to LOW (failsafe) and cleanup subprocess."""
+    global gpio_process
+    
+    if gpio_process is not None:
+        gpio_process.terminate()
+        try:
+            gpio_process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            gpio_process.kill()
+            gpio_process.wait()
+        gpio_process = None
+    
+    # One-shot set to 0 (release immediately)
+    subprocess.run([
+        "gpioset", CHIP,
+        f"{PINS['fan']}=0",
+        f"{PINS['compressor']}=0",
+        f"{PINS['heat']}=0"
+    ], check=False)
 
 
 def apply_state(action: str):
     """
-    Apply HVAC action to GPIO pins.
+    Apply HVAC action by spawning gpioset to hold lines.
     
     States:
     - idle: all off
@@ -65,26 +55,40 @@ def apply_state(action: str):
     - cooling: compressor on, fan on  
     - fan: fan on only
     """
-    if action == "heating":
-        lines.set_values({
-            PIN_FAN: Value.ACTIVE,
-            PIN_COMPRESSOR: Value.INACTIVE,
-            PIN_HEAT: Value.ACTIVE,
-        })
-    elif action == "cooling":
-        lines.set_values({
-            PIN_FAN: Value.ACTIVE,
-            PIN_COMPRESSOR: Value.ACTIVE,
-            PIN_HEAT: Value.INACTIVE,
-        })
-    elif action == "fan":
-        lines.set_values({
-            PIN_FAN: Value.ACTIVE,
-            PIN_COMPRESSOR: Value.INACTIVE,
-            PIN_HEAT: Value.INACTIVE,
-        })
-    else:  # idle or unknown
-        set_all_low()
+    global gpio_process
+    
+    # Map action to pin values (1=ACTIVE, 0=INACTIVE)
+    values = {
+        "heating": (1, 0, 1),  # fan, compressor, heat
+        "cooling": (1, 1, 0),
+        "fan":     (1, 0, 0),
+        "idle":    (0, 0, 0)
+    }.get(action, (0, 0, 0))
+    
+    fan_val, comp_val, heat_val = values
+    
+    # Kill previous gpioset process to release lines
+    if gpio_process is not None:
+        gpio_process.terminate()
+        try:
+            gpio_process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            gpio_process.kill()
+            gpio_process.wait()
+    
+    # Spawn new gpioset to hold lines in new state
+    cmd = [
+        "gpioset", CHIP,
+        f"{PINS['fan']}={fan_val}",
+        f"{PINS['compressor']}={comp_val}",
+        f"{PINS['heat']}={heat_val}"
+    ]
+    
+    try:
+        gpio_process = subprocess.Popen(cmd)
+    except FileNotFoundError:
+        print("Error: gpioset not found. Install libgpiod.", file=sys.stderr)
+        sys.exit(1)
 
 
 def signal_handler(signum, frame):
@@ -104,9 +108,12 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     
     try:
-        setup_gpio()
-        
+        print("GPIO Daemon starting, using gpioset...")
         print("Entering main loop, monitoring hvac_action...")
+        
+        # Set initial state to idle (all LOW)
+        apply_state("idle")
+        
         while True:
             # Read current desired action (default to idle if missing)
             action = read_file(HVAC_ACTION_FILE, default="idle")
@@ -120,6 +127,8 @@ def main():
         print(f"Error in main loop: {e}", file=sys.stderr)
         set_all_low()
         sys.exit(1)
+    finally:
+        set_all_low()
 
 
 if __name__ == "__main__":
