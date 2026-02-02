@@ -8,6 +8,7 @@ and writes aggregated temperature data to IPC files.
 
 import asyncio
 import json
+import sys
 import time
 from collections import deque
 from pathlib import Path
