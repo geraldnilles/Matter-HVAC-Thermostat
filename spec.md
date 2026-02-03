@@ -23,7 +23,11 @@ The Raspberry Pi directly drives relays for the HVAC components.
 
 * **Hardware:** Govee H5075 BLE temperature sensors (Manufacturer ID `0xEC88` / `60552`).
 * **Protocol:** Bluetooth Low Energy (BLE) via `bleak` Python library.
-* **Data Format:** Temperature encoded in manufacturer specific data (Company ID 0xEC88) as signed fixed-point with 2 decimal places (temp_c * 10000 + humidity * 100). Bytes 1-3 of the manufacturer data contain the temperature value.
+* **Data Format:** Temperature encoded in manufacturer specific data (Company ID 0xEC88). Bytes 1-3 contain a 24-bit integer where:
+  * Bit 23 (0x800000) is the sign bit (1 = negative).
+  * Bits 0-22 contain: `Temp(C) * 10000 + Humidity(%) * 10`.
+  * To extract temperature: Strip the sign bit, perform integer division by 1000 to remove humidity data, then divide by 10.0.
+  * Example: For 20.5°C and 50% humidity, the raw value is `205000 + 500 = 205500`. Extracted: `205500 // 1000 / 10.0 = 20.5°C`.
 
 ## 3. Software Architecture
 
