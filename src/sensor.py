@@ -114,9 +114,20 @@ class SensorDaemon:
         if len(data) < 4:
             return None
         
-        # Bytes 1-3 contain temperature (signed)
-        raw = int.from_bytes(data[1:4], byteorder="big", signed=True)
-        temp_c = raw / 10000.0
+        # Bytes 1-3 contain 24-bit integer
+        # Format: SignBit(1) | Temp(c)*10000 + Humidity(%)*10
+        raw = int.from_bytes(data[1:4], byteorder="big")
+
+        is_negative = bool(raw & 0x800000)
+        val = raw & 0x7FFFFF
+
+        # Strip humidity data (lower 1000) to prevent jitter
+        # Govee stores temp in the upper part: (val // 1000) / 10.0
+        temp_c = float(val // 1000) / 10.0
+        
+        if is_negative:
+            temp_c = -temp_c
+
         temp_f = (temp_c * 9.0 / 5.0) + 32.0
         return temp_f
     
