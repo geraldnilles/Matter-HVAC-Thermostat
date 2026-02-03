@@ -21,9 +21,9 @@ The Raspberry Pi directly drives relays for the HVAC components.
 
 ### 2.2 Temperature Sensors
 
-* **Hardware:** Govee H5075 BLE temperature sensors (Service UUID `0000ec88-0000-1000-8000-00805f9b34fb`).
+* **Hardware:** Govee H5075 BLE temperature sensors (Manufacturer ID `0xEC88` / `60552`).
 * **Protocol:** Bluetooth Low Energy (BLE) via `bleak` Python library.
-* **Data Format:** Temperature encoded in manufacturer data as signed fixed-point with 2 decimal places (temp_c * 10000 + humidity * 100).
+* **Data Format:** Temperature encoded in manufacturer specific data (Company ID 0xEC88) as signed fixed-point with 2 decimal places (temp_c * 10000 + humidity * 100). Bytes 1-3 of the manufacturer data contain the temperature value.
 
 ## 3. Software Architecture
 

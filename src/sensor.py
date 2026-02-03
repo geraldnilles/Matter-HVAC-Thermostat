@@ -35,8 +35,9 @@ ROLLING_WINDOW = 120  # 2 minutes - rolling average buffer
 HISTORY_INTERVAL = 60  # 1 minute - history sampling rate
 HISTORY_MAX_ENTRIES = 1440  # 24 hours at 1-minute intervals
 
-# Govee H5075 UUID for temperature/humidity data
-GOVEE_SERVICE_UUID = "0000ec88-0000-1000-8000-00805f9b34fb"
+# Govee H5075 manufacturer ID for temperature/humidity data
+# 0xEC88 = 60552
+GOVEE_MANUFACTURER_ID = 60552
 
 
 class SensorBuffer:
@@ -99,19 +100,22 @@ class SensorDaemon:
             print(f"Warning: Could not load allowlist from {DEFAULTS_PATH}: {e}")
             return {}
     
-    def _decode_govee_temp(self, manufacturer_data: bytes) -> float | None:
+    def _decode_govee_temp(self, manufacturer_data: dict) -> float | None:
         """
-        Decode temperature from Govee H5075 advertisement data.
+        Decode temperature from Govee H5075 manufacturer data.
         
-        Data format: 4 bytes, temperature is encoded in first 3 bytes
-        as signed fixed-point with 2 decimal places.
+        Data format: manufacturer ID 0xEC88 (60552) with 4+ bytes.
+        Bytes 1-3 contain temp_c * 10000 + humidity * 100 (signed).
         """
-        if len(manufacturer_data) < 4:
+        if GOVEE_MANUFACTURER_ID not in manufacturer_data:
             return None
         
-        # Govee encoding: temp_c * 10000 + humidity * 100
-        # First 3 bytes contain temperature (signed)
-        raw = int.from_bytes(manufacturer_data[:3], byteorder="big", signed=True)
+        data = manufacturer_data[GOVEE_MANUFACTURER_ID]
+        if len(data) < 4:
+            return None
+        
+        # Bytes 1-3 contain temperature (signed)
+        raw = int.from_bytes(data[1:4], byteorder="big", signed=True)
         temp_c = raw / 10000.0
         temp_f = (temp_c * 9.0 / 5.0) + 32.0
         return temp_f
@@ -124,12 +128,8 @@ class SensorDaemon:
         if mac not in self.allowlist:
             return
         
-        # Look for Govee service data
-        service_data = advertisement.service_data
-        if GOVEE_SERVICE_UUID not in service_data:
-            return
-        
-        temp = self._decode_govee_temp(service_data[GOVEE_SERVICE_UUID])
+        # Look for Govee manufacturer data
+        temp = self._decode_govee_temp(advertisement.manufacturer_data)
         if temp is None:
             return
         
@@ -210,7 +210,7 @@ class SensorDaemon:
         
         scanner = BleakScanner(
             self._detection_callback,
-            service_uuids=[GOVEE_SERVICE_UUID]
+            service_uuids=["0000ec88-0000-1000-8000-00805f9b34fb"]
         )
         
         print("Starting BLE scanner...")
