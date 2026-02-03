@@ -59,8 +59,8 @@ The Raspberry Pi directly drives relays for the HVAC components.
   },
   "system_mode": "off",
   "fan_mode": "auto",
-  "set_temp_cool": 75.0,
-  "set_temp_heat": 70.0
+  "set_temp_cool": 76.0,
+  "set_temp_heat": 68.0
 }
 ```
 * **Boot Process:** On system startup, before any daemons launch, a one-shot initialization service (`thermostat-setup`) copies values from `defaults.json` to the corresponding files in `/run/thermostat/` to seed the system state.
