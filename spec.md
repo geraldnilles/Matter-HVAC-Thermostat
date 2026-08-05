@@ -158,6 +158,7 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Topic Structure:**
     * **State Publication:** `thermostat/state` (JSON with temperature, mode, setpoints, action)
     * **Availability:** `thermostat/availability` (`online`/`offline`)
+    * **HA Discovery:** `homeassistant/climate/thermostat/config` (Retained JSON payload)
     * **Command Topics (Inbound):**
         * `thermostat/mode/set` - Values: `off`, `cool`, `heat`, `auto`
         * `thermostat/fan/set` - Values: `auto`, `on`

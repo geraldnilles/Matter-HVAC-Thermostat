@@ -77,6 +77,7 @@ MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD = _load_mqtt_config()
 TOPIC_PREFIX = "thermostat"
 TOPIC_STATE = f"{TOPIC_PREFIX}/state"
 TOPIC_AVAILABILITY = f"{TOPIC_PREFIX}/availability"
+TOPIC_DISCOVERY = "homeassistant/climate/thermostat/config"
 
 # Command topics (subscribe)
 TOPIC_CMD_MODE = f"{TOPIC_PREFIX}/mode/set"
@@ -119,6 +120,9 @@ class MqttDaemon:
             
             # Publish availability
             self.client.publish(TOPIC_AVAILABILITY, "online", retain=True)
+            
+            # Publish Home Assistant discovery configuration
+            self._publish_discovery()
             
             # Subscribe to command topics
             self.client.subscribe(TOPIC_CMD_MODE)
@@ -167,10 +171,51 @@ class MqttDaemon:
                     write_scalar(SET_TEMP_HEAT_FILE, temp)
                 except ValueError:
                     print(f"Invalid heat setpoint: {payload}")
-        
+                    
+            # Publish updated state immediately to MQTT broker
+            self._publish_state()
         except Exception as e:
             print(f"Error processing command: {e}")
     
+    def _publish_discovery(self):
+        """Publish Home Assistant MQTT Discovery configuration with retain flag."""
+        discovery_payload = {
+            "name": "Thermostat",
+            "unique_id": "thermostat_hvac_control",
+            "device": {
+                "identifiers": ["thermostat_hvac_control"],
+                "name": "Thermostat",
+                "model": "Raspberry Pi HVAC Thermostat",
+                "manufacturer": "Custom",
+            },
+            "availability_topic": TOPIC_AVAILABILITY,
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "action_topic": TOPIC_STATE,
+            "action_template": "{{ value_json.thermostat_running_state }}",
+            "current_temperature_topic": TOPIC_STATE,
+            "current_temperature_template": "{{ value_json.local_temperature }}",
+            "mode_state_topic": TOPIC_STATE,
+            "mode_state_template": "{{ value_json.system_mode }}",
+            "mode_command_topic": TOPIC_CMD_MODE,
+            "modes": ["off", "cool", "heat", "auto"],
+            "fan_mode_state_topic": TOPIC_STATE,
+            "fan_mode_state_template": "{{ value_json.fan_mode }}",
+            "fan_mode_command_topic": TOPIC_CMD_FAN,
+            "fan_modes": ["auto", "on"],
+            "temperature_high_state_topic": TOPIC_STATE,
+            "temperature_high_state_template": "{{ value_json.occupied_cooling_setpoint }}",
+            "temperature_high_command_topic": TOPIC_CMD_COOL,
+            "temperature_low_state_topic": TOPIC_STATE,
+            "temperature_low_state_template": "{{ value_json.occupied_heating_setpoint }}",
+            "temperature_low_command_topic": TOPIC_CMD_HEAT,
+            "temperature_unit": "F",
+            "precision": 0.1,
+            "temp_step": 1.0,
+        }
+        self.client.publish(TOPIC_DISCOVERY, json.dumps(discovery_payload), retain=True)
+        print(f"Published Home Assistant discovery config to {TOPIC_DISCOVERY}")
+
     def _publish_state(self):
         """Read IPC files and publish state to MQTT."""
         current = read_float(CURRENT_TEMP_FILE)
