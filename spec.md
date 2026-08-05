@@ -166,8 +166,6 @@ The system is divided into five primary daemons managed by `systemd`.
         * `thermostat/heat/set` - Float value for heating setpoint
 * **Matter Compatible Attributes:** Maps to:
   * `local_temperature`: Current average temperature
-  * `min_temperature`: Minimum sensor reading (for heating logic)
-  * `max_temperature`: Maximum sensor reading (for cooling logic)
   * `system_mode`: Current mode (off/cool/heat/auto)
   * `fan_mode`: Current fan mode (auto/on)
   * `occupied_cooling_setpoint`: Cooling setpoint

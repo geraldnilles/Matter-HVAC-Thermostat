@@ -16,8 +16,6 @@ import paho.mqtt.client as mqtt
 
 from utils import (
     CURRENT_TEMP_FILE,
-    MIN_TEMP_FILE,
-    MAX_TEMP_FILE,
     SYSTEM_MODE_FILE,
     FAN_MODE_FILE,
     SET_TEMP_COOL_FILE,
@@ -219,8 +217,6 @@ class MqttDaemon:
     def _publish_state(self):
         """Read IPC files and publish state to MQTT."""
         current = read_float(CURRENT_TEMP_FILE)
-        min_temp = read_float(MIN_TEMP_FILE)
-        max_temp = read_float(MAX_TEMP_FILE)
         system_mode = read_file(SYSTEM_MODE_FILE, default="off")
         fan_mode = read_file(FAN_MODE_FILE, default="auto")
         set_cool = read_float(SET_TEMP_COOL_FILE, default=74.0)
@@ -230,8 +226,6 @@ class MqttDaemon:
         # Build state payload (Matter-compatible attributes)
         state = {
             "local_temperature": current,
-            "min_temperature": min_temp,
-            "max_temperature": max_temp,
             "system_mode": system_mode,
             "fan_mode": fan_mode,
             "occupied_cooling_setpoint": set_cool,
