@@ -29,7 +29,7 @@ from utils import (
 )
 
 # Configuration
-MQTT_BROKER = "localhost"
+MQTT_BROKER = "homeassistant.lan"
 MQTT_PORT = 1883
 MQTT_CLIENT_ID = "thermostat"
 
@@ -51,7 +51,7 @@ class MqttDaemon:
     """MQTT client daemon for Home Assistant integration."""
     
     def __init__(self):
-        self.client = mqtt.Client(client_id=MQTT_CLIENT_ID)
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id=MQTT_CLIENT_ID)
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.running = True

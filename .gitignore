@@ -1,1 +1,3 @@
 .aider*
+src/__pycache__/
+.bash_agent_tmp/
