@@ -10,7 +10,6 @@ DESTDIR ?=
 SRC_DIR = src
 CONFIG_DIR = config
 SYSTEMD_DIR = systemd
-TEMPLATE_DIR = templates
 
 INSTALL_DIR = $(DESTDIR)$(PREFIX)/share/thermostat
 INSTALL_TEMPLATE_DIR = $(INSTALL_DIR)/templates
@@ -54,7 +53,12 @@ install-dirs:
 	install -d $(INSTALL_CONFIG_DIR)
 	install -d $(INSTALL_SYSTEMD_DIR)
 
+# Each install-* rule creates its own destination directory so the
+# install target is safe under parallel make (-j). GNU make does not
+# guarantee prerequisite ordering, so relying on install-dirs having
+# run first is a race condition.
 install-python: $(PYTHON_FILES)
+	install -d $(INSTALL_DIR)
 	install -m 644 $(SRC_DIR)/utils.py $(INSTALL_DIR)/
 	install -m 755 $(SRC_DIR)/setup.py $(INSTALL_DIR)/
 	install -m 755 $(SRC_DIR)/sensor.py $(INSTALL_DIR)/
@@ -64,12 +68,15 @@ install-python: $(PYTHON_FILES)
 	install -m 755 $(SRC_DIR)/web.py $(INSTALL_DIR)/
 
 install-templates: $(TEMPLATE_FILES)
+	install -d $(INSTALL_TEMPLATE_DIR)
 	install -m 644 $(SRC_DIR)/templates/index.html $(INSTALL_TEMPLATE_DIR)/
 
 install-config: $(CONFIG_FILES)
+	install -d $(INSTALL_CONFIG_DIR)
 	install -m 644 $(CONFIG_DIR)/defaults.json $(INSTALL_CONFIG_DIR)/
 
 install-systemd: $(SYSTEMD_FILES)
+	install -d $(INSTALL_SYSTEMD_DIR)
 	install -m 644 $(SYSTEMD_DIR)/thermostat-setup.service $(INSTALL_SYSTEMD_DIR)/
 	install -m 644 $(SYSTEMD_DIR)/thermostat-sensor.service $(INSTALL_SYSTEMD_DIR)/
 	install -m 644 $(SYSTEMD_DIR)/thermostat-control.service $(INSTALL_SYSTEMD_DIR)/
