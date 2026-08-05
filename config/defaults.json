@@ -6,5 +6,11 @@
   "sensors": {
     "A4:C1:38:00:00:01": "Living Room",
     "A4:C1:38:00:00:02": "Bedroom"
+  },
+  "mqtt": {
+    "broker": "homeassistant.lan",
+    "port": 1883,
+    "username": "",
+    "password": ""
   }
 }

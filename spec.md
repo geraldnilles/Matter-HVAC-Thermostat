@@ -64,9 +64,16 @@ The Raspberry Pi directly drives relays for the HVAC components.
   "system_mode": "off",
   "fan_mode": "auto",
   "set_temp_cool": 76.0,
-  "set_temp_heat": 68.0
+  "set_temp_heat": 68.0,
+  "mqtt": {
+    "broker": "homeassistant.lan",
+    "port": 1883,
+    "username": "thermostat",
+    "password": "secret"
+  }
 }
 ```
+* The `mqtt` object stores the MQTT broker host, port, and optional authentication credentials. Leave `username` and `password` as empty strings (`""`) for brokers that do not require authentication.
 * **Boot Process:** On system startup, before any daemons launch, a one-shot initialization service (`thermostat-setup`) copies values from `defaults.json` to the corresponding files in `/run/thermostat/` to seed the system state.
 
 ### 3.4 Service Dependencies
@@ -146,6 +153,7 @@ The system is divided into five primary daemons managed by `systemd`.
 ### 4.4 MQTT Daemon (`thermostat-mqtt`)
 
 * **Responsibility:** Primary control interface via Home Assistant. Can write to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat` (concurrent with WebUI).
+* **Configuration:** Broker host, port, and optional username/password are loaded from the `mqtt` object in `/etc/thermostat/defaults.json`. If `username` is empty, the daemon connects without authentication.
 * **Protocol:** MQTT Climate entity.
 * **Topic Structure:**
     * **State Publication:** `thermostat/state` (JSON with temperature, mode, setpoints, action)

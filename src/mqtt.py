@@ -29,9 +29,49 @@ from utils import (
 )
 
 # Configuration
-MQTT_BROKER = "homeassistant.lan"
-MQTT_PORT = 1883
+DEFAULTS_PATH = Path("/etc/thermostat/defaults.json")
 MQTT_CLIENT_ID = "thermostat"
+
+
+def _load_mqtt_config() -> tuple:
+    """
+    Load MQTT broker settings from defaults.json.
+
+    Reads the "mqtt" section of /etc/thermostat/defaults.json (installed
+    from config/defaults.json by the Makefile). Falls back to built-in
+    defaults if the file is missing, malformed, or lacks an "mqtt" section.
+    """
+    default_broker = "homeassistant.lan"
+    default_port = 1883
+    default_username = ""
+    default_password = ""
+
+    try:
+        with open(DEFAULTS_PATH, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        mqtt_cfg = config.get("mqtt", {})
+        broker = mqtt_cfg.get("broker", default_broker)
+
+        # Coerce port to int in case it's stored as a string
+        try:
+            port = int(mqtt_cfg.get("port", default_port))
+        except (TypeError, ValueError):
+            print(f"Warning: Invalid MQTT port '{mqtt_cfg.get('port')}', using {default_port}")
+            port = default_port
+
+        return (
+            broker,
+            port,
+            mqtt_cfg.get("username", default_username),
+            mqtt_cfg.get("password", default_password),
+        )
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Warning: Could not load MQTT config from {DEFAULTS_PATH}: {e}")
+        return default_broker, default_port, default_username, default_password
+
+
+# Load MQTT broker settings from the config file at startup
+MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD = _load_mqtt_config()
 
 # Topic prefixes
 TOPIC_PREFIX = "thermostat"
@@ -55,6 +95,10 @@ class MqttDaemon:
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.running = True
+
+        # Set authentication credentials if configured
+        if MQTT_USERNAME:
+            self.client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
         
         # Setup signal handlers
         signal.signal(signal.SIGTERM, self._signal_handler)
