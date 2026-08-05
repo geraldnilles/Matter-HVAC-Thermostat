@@ -51,7 +51,7 @@ class MqttDaemon:
     """MQTT client daemon for Home Assistant integration."""
     
     def __init__(self):
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id=MQTT_CLIENT_ID)
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=MQTT_CLIENT_ID)
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.running = True
@@ -68,7 +68,7 @@ class MqttDaemon:
         self.client.disconnect()
         sys.exit(0)
     
-    def _on_connect(self, client, userdata, flags, rc):
+    def _on_connect(self, client, userdata, flags, rc, properties=None):
         """Callback when connected to MQTT broker."""
         if rc == 0:
             print(f"Connected to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
