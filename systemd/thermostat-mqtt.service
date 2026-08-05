@@ -1,7 +1,6 @@
 [Unit]
 Description=Thermostat MQTT Daemon (Home Assistant Integration)
-After=thermostat-setup.service thermostat-control.service mosquitto.service
-Wants=mosquitto.service
+After=thermostat-setup.service thermostat-control.service
 
 [Service]
 Type=simple

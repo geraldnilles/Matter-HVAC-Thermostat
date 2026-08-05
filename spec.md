@@ -73,7 +73,7 @@ The Raspberry Pi directly drives relays for the HVAC components.
   }
 }
 ```
-* The `mqtt` object stores the MQTT broker host, port, and optional authentication credentials. Leave `username` and `password` as empty strings (`""`) for brokers that do not require authentication.
+* The `mqtt` object stores the MQTT broker host, port, and optional authentication credentials. The broker runs on the **separate Home Assistant device** — the thermostat does **not** run a local MQTT broker (no mosquitto on the Pi). Leave `username` and `password` as empty strings (`""`) for brokers that do not require authentication.
 * **Boot Process:** On system startup, before any daemons launch, a one-shot initialization service (`thermostat-setup`) copies values from `defaults.json` to the corresponding files in `/run/thermostat/` to seed the system state.
 
 ### 3.4 Service Dependencies
@@ -84,7 +84,8 @@ Services start in the following order, managed by systemd `After=` directives:
 2. **thermostat-sensor** - Starts after setup and bluetooth target
 3. **thermostat-control** - Starts after setup and sensor (requires temperature data)
 4. **thermostat-gpio** - Starts after setup and control (60-second delay via `ExecStartPre`)
-5. **thermostat-mqtt** / **thermostat-web** - Start after setup and control (can run concurrently)
+5. **thermostat-mqtt** / **thermostat-web** - Start after setup and control (can run concurrently).
+   The MQTT daemon connects to a **remote** broker on the Home Assistant device — there is no local broker dependency (`systemd/thermostat-mqtt.service` has no `mosquitto.service` in `After=`/`Wants=`).
 
 ## 4. System Components (Services)
 
@@ -154,6 +155,7 @@ The system is divided into five primary daemons managed by `systemd`.
 
 * **Responsibility:** Primary control interface via Home Assistant. Can write to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat` (concurrent with WebUI).
 * **Configuration:** Broker host, port, and optional username/password are loaded from the `mqtt` object in `/etc/thermostat/defaults.json`. If `username` is empty, the daemon connects without authentication.
+* **Broker Location:** The broker is **not** hosted on the Pi — the thermostat connects to the MQTT broker that runs on the separate Home Assistant device (e.g., the Mosquitto broker add-on/`mosquitto` package in Home Assistant OS). No local MQTT broker service is installed or started by this project.
 * **Protocol:** MQTT Climate entity.
 * **Topic Structure:**
     * **State Publication:** `thermostat/state` (JSON with temperature, mode, setpoints, action)
