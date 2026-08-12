@@ -10,6 +10,7 @@ import sys
 from flask import Flask, render_template, request, jsonify
 
 from utils import (
+    round_degree,
     CURRENT_TEMP_FILE,
     MIN_TEMP_FILE,
     MAX_TEMP_FILE,
@@ -98,7 +99,7 @@ def set_setpoint():
         return jsonify({"error": "Type must be 'cool' or 'heat'"}), 400
     
     try:
-        temp = utils.round_degree(float(value))
+        temp = round_degree(float(value))
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid temperature value"}), 400
     

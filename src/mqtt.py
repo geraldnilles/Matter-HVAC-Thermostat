@@ -15,6 +15,7 @@ from pathlib import Path
 import paho.mqtt.client as mqtt
 
 from utils import (
+    round_degree,
     CURRENT_TEMP_FILE,
     SYSTEM_MODE_FILE,
     FAN_MODE_FILE,
@@ -158,14 +159,14 @@ class MqttDaemon:
             
             elif topic == TOPIC_CMD_COOL:
                 try:
-                    temp = utils.round_degree(float(payload))
+                    temp = round_degree(float(payload))
                     write_scalar(SET_TEMP_COOL_FILE, temp)
                 except ValueError:
                     print(f"Invalid cool setpoint: {payload}")
             
             elif topic == TOPIC_CMD_HEAT:
                 try:
-                    temp = utils.round_degree(float(payload))
+                    temp = round_degree(float(payload))
                     write_scalar(SET_TEMP_HEAT_FILE, temp)
                 except ValueError:
                     print(f"Invalid heat setpoint: {payload}")

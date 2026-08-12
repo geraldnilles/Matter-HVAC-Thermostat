@@ -13,6 +13,7 @@ from datetime import datetime
 from enum import Enum
 
 from utils import (
+    round_degree,
     MIN_TEMP_FILE,
     MAX_TEMP_FILE,
     SYSTEM_MODE_FILE,
@@ -104,15 +105,15 @@ class ControlDaemon:
         simplicity, we always ensure cool >= heat + 8.
         """
         # Snap inputs to nearest whole degree so stale/corrupt IPC values self-heal
-        cool_temp = utils.round_degree(cool_temp)
-        heat_temp = utils.round_degree(heat_temp)
+        cool_temp = round_degree(cool_temp)
+        heat_temp = round_degree(heat_temp)
 
         if cool_temp < heat_temp + MIN_SETPOINT_GAP:
             # Gap too small - expand it symmetrically around midpoint,
             # then snap expanded values to whole degrees
             midpoint = (cool_temp + heat_temp) / 2
-            cool_temp = utils.round_degree(midpoint + MIN_SETPOINT_GAP / 2)
-            heat_temp = utils.round_degree(midpoint - MIN_SETPOINT_GAP / 2)
+            cool_temp = round_degree(midpoint + MIN_SETPOINT_GAP / 2)
+            heat_temp = round_degree(midpoint - MIN_SETPOINT_GAP / 2)
         return cool_temp, heat_temp
     
     def _read_inputs(self) -> dict:
