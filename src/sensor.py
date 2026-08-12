@@ -24,7 +24,9 @@ from utils import (
     HISTORY_FILE,
     SET_TEMP_COOL_FILE,
     SET_TEMP_HEAT_FILE,
+    HVAC_ACTION_FILE,
     read_float,
+    read_file,
     write_scalar,
     write_json,
     IPC_DIR,
@@ -183,6 +185,10 @@ class SensorDaemon:
         set_temp_cool = read_float(SET_TEMP_COOL_FILE)
         set_temp_heat = read_float(SET_TEMP_HEAT_FILE)
 
+        # Capture the current HVAC action so the WebUI can render a
+        # horizontal action bar aligned with the temperature chart.
+        hvac_action = read_file(HVAC_ACTION_FILE)
+
         entry = {
             "t": int(now),  # Unix epoch timestamp
             "avg": round(avg_temp, 2),
@@ -192,6 +198,8 @@ class SensorDaemon:
             entry["set_temp_cool"] = round(set_temp_cool, 2)
         if set_temp_heat is not None:
             entry["set_temp_heat"] = round(set_temp_heat, 2)
+        if hvac_action is not None:
+            entry["hvac_action"] = hvac_action
 
         self.history.append(entry)
         self.last_history_update = now

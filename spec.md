@@ -104,6 +104,7 @@ The system is divided into five primary daemons managed by `systemd`.
       * `sensors`: Object mapping sensor location names to their filtered 2-minute rolling average temperatures
       * `set_temp_cool`: Current cooling setpoint °F (present when available)
       * `set_temp_heat`: Current heating setpoint °F (present when available)
+      * `hvac_action`: Current HVAC action string (present when available) — sampled so the WebUI can render an action bar aligned with the temperature history
 * **Sensor Aggregation Logic:**
     * **Partial Failure:** If a defined sensor goes stale (no data for > 2 mins), exclude it from the calculation. Continue operation as long as at least one sensor remains valid.
     * **Total Failure:** If *zero* sensors are valid, delete the `current_temp` IPC file to immediately trigger the Control Daemon failsafe.
@@ -189,6 +190,7 @@ The system is divided into five primary daemons managed by `systemd`.
     * Simple HTML interface for manual control.
     * Setpoint controls use a single pair of +/− buttons that adjust the heating and cooling setpoints simultaneously, preserving the 8°F minimum separation enforced by the control daemon.
     * Visualizes 24-hour temperature history graph (reads `history.json`). Plots a line for each room from the per-sensor readings, plus a bold average line, and dashed heating/cooling setpoint reference lines; a color-coded legend identifies each line.
+    * Renders a horizontal HVAC action bar directly below the temperature history. Each bar segment is colored by the action at that time (heating, cooling, fan, idle), and the bar uses the same horizontal time scale as the temperature graph so action segments line up with the temperature curve.
     * Auto-refreshes state every 30 seconds via JavaScript.
 * **REST API Endpoints:**
     * `GET /` - HTML interface
@@ -209,7 +211,7 @@ The system is divided into five primary daemons managed by `systemd`.
 | `current_temp` | Sensor | `float` | Average of all valid sensors (for display/MQTT). |
 | `min_temp` | Sensor | `float` | Lowest valid sensor reading (for Heating logic). |
 | `max_temp` | Sensor | `float` | Highest valid sensor reading (for Cooling logic). |
-| `history.json` | Sensor | `JSON` | List of objects: `[{"t": timestamp, "avg": float, "sensors": {"name": float, ...}, "set_temp_cool": float, "set_temp_heat": float}, ...]` (setpoints optional when absent) |
+| `history.json` | Sensor | `JSON` | List of objects: `[{"t": timestamp, "avg": float, "sensors": {"name": float, ...}, "set_temp_cool": float, "set_temp_heat": float, "hvac_action": string}, ...]` (setpoints and `hvac_action` optional when absent) |
 | `system_mode` | MQTT, Web | `string` | "off", "cool", "heat", "auto". |
 | `fan_mode` | MQTT, Web | `string` | "auto", "on". |
 | `set_temp_cool` | MQTT, Web, Control | `float` | Cooling target. May be adjusted by Control Daemon to enforce 8°F gap. |

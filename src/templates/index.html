@@ -129,6 +129,15 @@
             width: 100%;
             height: 360px;
         }
+        #chart-action {
+            width: 100%;
+            height: 60px;
+        }
+        .chart-divider {
+            height: 1px;
+            background: #ddd;
+            margin: 16px 0 8px 0;
+        }
         .legend {
             display: flex;
             flex-wrap: wrap;
@@ -226,6 +235,9 @@
         <label>24-Hour Temperature History</label>
         <div class="legend" id="chart-legend"></div>
         <canvas id="chart"></canvas>
+        <div class="chart-divider"></div>
+        <div class="legend" id="chart-action-legend"></div>
+        <canvas id="chart-action"></canvas>
     </div>
     
     <button class="refresh-btn" onclick="loadState()">Refresh</button>
@@ -271,8 +283,9 @@
             document.getElementById('heat-setpoint').textContent = 
                 currentState.set_temp_heat ? currentState.set_temp_heat.toFixed(0) : '--';
             
-            // Draw chart
+            // Draw charts
             drawChart();
+            drawActionBar();
         }
         
         async function setMode(mode) {
@@ -503,6 +516,94 @@
             addLegendItem('Heat Setpoint', HEAT_SETPOINT_COLOR, true);
             addLegendItem('Cool Setpoint', COOL_SETPOINT_COLOR, true);
             sensorNames.forEach(name => addLegendItem(name, sensorColors[name], false));
+        }
+        
+        function drawActionBar() {
+            const canvas = document.getElementById('chart-action');
+            const ctx = canvas.getContext('2d');
+            const history = currentState.history || [];
+            
+            // Match the temperature chart's horizontal scale so each action
+            // segment lines up with the temperature points above it.
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            
+            const padding = 40;
+            const chartW = canvas.width - padding * 2;
+            
+            // Action -> fill color, matching the status badge colors
+            const ACTION_COLORS = {
+                heating: '#d84315',
+                cooling: '#0277bd',
+                fan: '#2e7d32',
+                idle: '#bdbdbd'
+            };
+            
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            if (history.length < 2) {
+                ctx.fillStyle = '#999';
+                ctx.textAlign = 'center';
+                ctx.fillText('Not enough data', canvas.width/2, canvas.height/2);
+                return;
+            }
+            
+            const xAt = (i) => padding + (i / (history.length - 1)) * chartW;
+            
+            // Bar occupies most of the short canvas, slightly inset vertically
+            const top = 10;
+            const bottom = canvas.height - 10;
+            
+            // Draw light axis bracket to align with the temperature chart
+            ctx.strokeStyle = '#ccc';
+            ctx.beginPath();
+            ctx.moveTo(padding, top);
+            ctx.lineTo(padding, bottom);
+            ctx.lineTo(canvas.width - padding, bottom);
+            ctx.stroke();
+            
+            // Each 1-minute sample extends from its timestamp to the next one,
+            // so the total bar length equals chartW (same scale as the chart).
+            for (let i = 0; i < history.length - 1; i++) {
+                const x0 = xAt(i);
+                const x1 = xAt(i + 1);
+                const action = history[i].hvac_action || 'idle';
+                ctx.fillStyle = ACTION_COLORS[action] || ACTION_COLORS.idle;
+                ctx.fillRect(x0, top, x1 - x0, bottom - top);
+            }
+            
+            // Time labels for start/end to mirror the temperature chart
+            const fmtTime = (ts) => {
+                const d = new Date(ts * 1000);
+                return d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+            };
+            ctx.fillStyle = '#666';
+            ctx.font = '12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(fmtTime(history[0].t), padding, canvas.height - 2);
+            ctx.fillText(fmtTime(history[history.length - 1].t), canvas.width - padding, canvas.height - 2);
+            
+            // Action legend
+            const legend = document.getElementById('chart-action-legend');
+            legend.innerHTML = '';
+            const addLegendItem = (label, color) => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                const swatch = document.createElement('span');
+                swatch.className = 'legend-swatch';
+                swatch.style.background = color;
+                swatch.style.height = '10px';
+                const text = document.createElement('span');
+                text.textContent = label;
+                item.appendChild(swatch);
+                item.appendChild(text);
+                legend.appendChild(item);
+            };
+            addLegendItem('Heating', ACTION_COLORS.heating);
+            addLegendItem('Cooling', ACTION_COLORS.cooling);
+            addLegendItem('Fan', ACTION_COLORS.fan);
+            addLegendItem('Idle', ACTION_COLORS.idle);
         }
         
         // Load state on page load and every 30 seconds
