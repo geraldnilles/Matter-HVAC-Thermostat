@@ -346,6 +346,10 @@
             sensorNames.forEach((name, i) => {
                 sensorColors[name] = palette[i % palette.length];
             });
+
+            // Colors for the heating/cooling setpoint reference lines
+            const HEAT_SETPOINT_COLOR = '#FF5722';
+            const COOL_SETPOINT_COLOR = '#00BCD4';
             
             const padding = 40;
             const chartW = canvas.width - padding * 2;
@@ -364,6 +368,12 @@
                         maxTemp = Math.max(maxTemp, v);
                     });
                 }
+                ['set_temp_cool', 'set_temp_heat'].forEach(key => {
+                    if (typeof h[key] === 'number') {
+                        minTemp = Math.min(minTemp, h[key]);
+                        maxTemp = Math.max(maxTemp, h[key]);
+                    }
+                });
             });
             if (!isFinite(minTemp) || !isFinite(maxTemp)) {
                 ctx.fillStyle = '#999';
@@ -424,6 +434,36 @@
                 else ctx.lineTo(x, y);
             });
             ctx.stroke();
+
+            // Draw setpoint reference lines (dashed, so they are distinct
+            // from sensor temperatures)
+            const drawSetpoint = (key, color) => {
+                ctx.save();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.setLineDash([6, 4]);
+                ctx.beginPath();
+                let started = false;
+                history.forEach((h, i) => {
+                    const val = h[key];
+                    if (typeof val !== 'number') {
+                        started = false;  // break line if setpoint missing
+                        return;
+                    }
+                    const x = xAt(i);
+                    const y = yAt(val);
+                    if (!started) {
+                        ctx.moveTo(x, y);
+                        started = true;
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.stroke();
+                ctx.restore();
+            };
+            drawSetpoint('set_temp_heat', HEAT_SETPOINT_COLOR);
+            drawSetpoint('set_temp_cool', COOL_SETPOINT_COLOR);
             
             // Y-axis labels
             ctx.fillStyle = '#666';
@@ -459,6 +499,8 @@
                 legend.appendChild(item);
             };
             addLegendItem('Average', '#2196F3', true);
+            addLegendItem('Heat Setpoint', HEAT_SETPOINT_COLOR, true);
+            addLegendItem('Cool Setpoint', COOL_SETPOINT_COLOR, true);
             sensorNames.forEach(name => addLegendItem(name, sensorColors[name], false));
         }
         

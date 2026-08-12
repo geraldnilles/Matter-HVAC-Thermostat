@@ -32,7 +32,7 @@ All shared state lives in `/run/thermostat/` (tmpfs). **Every write must be atom
 | `current_temp` | sensor | Average °F across all valid sensors |
 | `min_temp` | sensor | Coldest valid sensor °F — drives heating |
 | `max_temp` | sensor | Hottest valid sensor °F — drives cooling |
-| `history.json` | sensor | 24 h ring buffer, 1-min samples, `{"t": epoch, "avg": °F, "sensors": {name: °F}}` |
+| `history.json` | sensor | 24 h ring buffer, 1-min samples, `{"t": epoch, "avg": °F, "sensors": {name: °F}, "set_temp_cool": °F, "set_temp_heat": °F}` |
 | `system_mode` | mqtt, web | `off` \| `cool` \| `heat` \| `auto` |
 | `fan_mode` | mqtt, web | `auto` \| `on` |
 | `set_temp_cool` | mqtt, web, control | Cooling setpoint °F |
@@ -133,7 +133,7 @@ MQTT broker config comes from the `mqtt` section of `defaults.json` (broker, por
 
 ## WebUI REST API (`src/web.py`)
 
-- `GET /` — HTML dashboard (auto-refresh 30 s) with live temp, mode/setpoint controls, 24 h history graph; setpoint controls use a single +/- button pair that adjusts heat and cool setpoints simultaneously
+- `GET /` — HTML dashboard (auto-refresh 30 s) with live temp, mode/setpoint controls, 24 h history graph (room lines + bold average + dashed heat/cool setpoint lines); setpoint controls use a single +/- button pair that adjusts heat and cool setpoints simultaneously
 - `GET /api/state` — full state as JSON (includes `history`)
 - `POST /api/mode` — `{"mode": "off"|"cool"|"heat"|"auto"}`
 - `POST /api/fan` — `{"fan": "auto"|"on"}`

@@ -22,6 +22,9 @@ from utils import (
     MIN_TEMP_FILE,
     MAX_TEMP_FILE,
     HISTORY_FILE,
+    SET_TEMP_COOL_FILE,
+    SET_TEMP_HEAT_FILE,
+    read_float,
     write_scalar,
     write_json,
     IPC_DIR,
@@ -175,12 +178,21 @@ class SensorDaemon:
         for mac, temp in valid_sensors:
             sensor_readings[self.allowlist.get(mac, mac)] = round(temp, 2)
         
+        # Capture current heating/cooling setpoints so the WebUI can graph
+        # them alongside sensor temperatures over the 24 h window.
+        set_temp_cool = read_float(SET_TEMP_COOL_FILE)
+        set_temp_heat = read_float(SET_TEMP_HEAT_FILE)
+
         entry = {
             "t": int(now),  # Unix epoch timestamp
             "avg": round(avg_temp, 2),
             "sensors": sensor_readings
         }
-        
+        if set_temp_cool is not None:
+            entry["set_temp_cool"] = round(set_temp_cool, 2)
+        if set_temp_heat is not None:
+            entry["set_temp_heat"] = round(set_temp_heat, 2)
+
         self.history.append(entry)
         self.last_history_update = now
         print(f"History updated: avg={avg_temp:.2f}°F, sensors={len(valid_sensors)}")
