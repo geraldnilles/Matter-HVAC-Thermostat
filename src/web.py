@@ -98,7 +98,7 @@ def set_setpoint():
         return jsonify({"error": "Type must be 'cool' or 'heat'"}), 400
     
     try:
-        temp = float(value)
+        temp = utils.round_half(float(value))
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid temperature value"}), 400
     

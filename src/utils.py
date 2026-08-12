@@ -6,6 +6,7 @@ All writes to shared state files must be atomic to prevent race conditions.
 """
 
 import os
+import math
 import json
 from pathlib import Path
 
@@ -22,6 +23,19 @@ FAN_MODE_FILE = IPC_DIR / "fan_mode"
 SET_TEMP_COOL_FILE = IPC_DIR / "set_temp_cool"
 SET_TEMP_HEAT_FILE = IPC_DIR / "set_temp_heat"
 HVAC_ACTION_FILE = IPC_DIR / "hvac_action"
+
+
+def round_half(value: float) -> float:
+    """
+    Round a temperature to the nearest 0.5°F step, ensuring clean setpoints.
+
+    Prevents fractional artifacts (e.g. 73.125) from appearing in IPC files
+    via the control daemon's setpoint-gap enforcement, MQTT, or WebUI writes.
+
+    Uses half-up rounding (math.floor with +0.5) rather than Python's
+    banker's round(), so e.g. 73.25 -> 73.5, not 73.0.
+    """
+    return math.floor(value * 2 + 0.5) / 2
 
 
 def atomic_write(filepath: Path, content: str) -> None:

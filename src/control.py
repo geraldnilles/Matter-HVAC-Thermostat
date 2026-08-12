@@ -92,13 +92,23 @@ class ControlDaemon:
     def _enforce_setpoint_separation(self, cool_temp: float, heat_temp: float) -> tuple[float, float]:
         """
         Enforce minimum 7°F gap between heat and cool setpoints.
-        
-        If setpoints are too close, adjust the one that was just changed
-        to maintain the gap. For simplicity, we always ensure cool >= heat + 7.
+
+        Incoming setpoints are first snapped to the nearest 0.5°F step
+        (defense-in-depth: MQTT/WebUI also snap), which both heals any
+        previously-corrupted fractional IPC values and keeps the effective
+        setpoints round.
+
+        If setpoints are still too close, adjust them symmetrically around
+        their (snapped) midpoint to maintain the gap. For simplicity, we
+        always ensure cool >= heat + 7.
         """
+        # Snap inputs to nearest 0.5°F so stale/corrupt IPC values self-heal
+        cool_temp = utils.round_half(cool_temp)
+        heat_temp = utils.round_half(heat_temp)
+
         if cool_temp < heat_temp + MIN_SETPOINT_GAP:
-            # Gap too small - expand it
-            midpoint = (cool_temp + heat_temp) / 2
+            # Gap too small - expand it symmetrically around midpoint
+            midpoint = utils.round_half((cool_temp + heat_temp) / 2)
             cool_temp = midpoint + MIN_SETPOINT_GAP / 2
             heat_temp = midpoint - MIN_SETPOINT_GAP / 2
         return cool_temp, heat_temp

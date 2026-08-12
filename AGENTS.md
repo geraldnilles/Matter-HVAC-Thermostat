@@ -100,7 +100,7 @@ All defined as module-level constants in the daemons. They are safety- or comfor
 - **Auto mode conflict:** if both heat and cool demand, the larger deviation from setpoint wins; an already-active action takes priority.
 - **`fan_mode: on`** → `hvac_action = fan` whenever the system would otherwise be idle, even in `system_mode: off`.
 - **Data failsafe:** missing `min_temp`/`max_temp` → force `idle`.
-- Setpoint separation is re-derived from local IPC values on every cycle; adjusted setpoints are **written back** to IPC so the UI/MQTT show effective values.
+- Setpoint separation is re-derived from local IPC values on every cycle; adjusted setpoints are **written back** to IPC so the UI/MQTT show effective values. Setpoint separation expands symmetrically around a midpoint **snapped to 0.5°F** (see `utils.round_half()`); all setpoint writes (MQTT, WebUI) are snapped to 0.5°F to prevent fractional artifacts, and control snaps its IPC inputs on every cycle so stale fractional values self-heal.
 - The 60 s dwell timer blocks *all* state changes (checked before any write) — it is not bypassed by user commands.
 
 ## MQTT interface (`src/mqtt.py`)

@@ -158,14 +158,14 @@ class MqttDaemon:
             
             elif topic == TOPIC_CMD_COOL:
                 try:
-                    temp = float(payload)
+                    temp = utils.round_half(float(payload))
                     write_scalar(SET_TEMP_COOL_FILE, temp)
                 except ValueError:
                     print(f"Invalid cool setpoint: {payload}")
             
             elif topic == TOPIC_CMD_HEAT:
                 try:
-                    temp = float(payload)
+                    temp = utils.round_half(float(payload))
                     write_scalar(SET_TEMP_HEAT_FILE, temp)
                 except ValueError:
                     print(f"Invalid heat setpoint: {payload}")
