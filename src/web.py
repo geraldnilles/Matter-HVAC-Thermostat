@@ -90,7 +90,7 @@ def set_fan():
 
 @app.route("/api/setpoint", methods=["POST"])
 def set_setpoint():
-    """Set temperature setpoint."""
+    """Set a single temperature setpoint."""
     data = request.get_json()
     setpoint_type = data.get("type", "").lower()
     value = data.get("value")
@@ -109,6 +109,33 @@ def set_setpoint():
         write_scalar(SET_TEMP_HEAT_FILE, temp)
     
     return jsonify({"success": True, "type": setpoint_type, "value": temp})
+
+
+@app.route("/api/setpoints", methods=["POST"])
+def set_setpoints():
+    """Adjust both heat and cool setpoints simultaneously by a delta."""
+    data = request.get_json()
+    delta = data.get("delta")
+    
+    try:
+        delta = float(delta)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid delta value"}), 400
+    
+    cool = read_float(SET_TEMP_COOL_FILE, default=74.0)
+    heat = read_float(SET_TEMP_HEAT_FILE, default=70.0)
+    
+    cool = round_degree(cool + delta)
+    heat = round_degree(heat + delta)
+    
+    write_scalar(SET_TEMP_COOL_FILE, cool)
+    write_scalar(SET_TEMP_HEAT_FILE, heat)
+    
+    return jsonify({
+        "success": True,
+        "set_temp_cool": cool,
+        "set_temp_heat": heat,
+    })
 
 
 def signal_handler(signum, frame):

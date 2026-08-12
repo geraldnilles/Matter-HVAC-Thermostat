@@ -185,6 +185,7 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Network:** Binds to `0.0.0.0:5000`.
 * **Functionality:**
     * Simple HTML interface for manual control.
+    * Setpoint controls use a single pair of +/− buttons that adjust the heating and cooling setpoints simultaneously, preserving the 8°F minimum separation enforced by the control daemon.
     * Visualizes 24-hour temperature history graph (reads `history.json`). Plots a line for each room from the per-sensor readings, plus a bold average line; a color-coded legend identifies each line.
     * Auto-refreshes state every 30 seconds via JavaScript.
 * **REST API Endpoints:**
@@ -192,7 +193,8 @@ The system is divided into five primary daemons managed by `systemd`.
     * `GET /api/state` - JSON with current state (temps, modes, setpoints, action)
     * `POST /api/mode` - Body: `{"mode": "off"|"cool"|"heat"|"auto"}`
     * `POST /api/fan` - Body: `{"fan": "auto"|"on"}`
-    * `POST /api/setpoint` - Body: `{"type": "cool"|"heat", "value": float}`
+    * `POST /api/setpoint` - Body: `{"type": "cool"|"heat", "value": float}` (single-setpoint override; retained for compatibility)
+    * `POST /api/setpoints` - Body: `{"delta": float}` — adjusts both `set_temp_cool` and `set_temp_heat` by `delta` °F (used by the WebUI +/- buttons)
 
 * **Output:** Writes to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat`.
 

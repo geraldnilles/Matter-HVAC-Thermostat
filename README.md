@@ -11,7 +11,7 @@ Built to be boring and reliable: no cloud, no app to install, no YAML to fiddle 
 - **Multi-zone sensing** — multiple wireless Govee H5075 BLE temperature sensors are pooled sensibly: it heats the **coldest** room and cools the **hottest** room.
 - **Protects your HVAC equipment** — 120-second minimum dwell between state changes (compressor protection), a 60-second startup delay, and normally-open relays so everything is OFF on power loss or reboot.
 - **Fails safe on bad data** — if sensor data goes stale, the HVAC is forced off instead of guessing.
-- **Setpoint protection** — heat and cool setpoints are kept at least 7 °F apart automatically.
+- **Setpoint protection** — heat and cool setpoints are kept at least 8 °F apart automatically.
 - **Built-in web interface** — a local Flask dashboard with a 24-hour temperature history graph.
 - **Yocto-friendly** — standard `make install` with `DESTDIR`/`PREFIX` overrides for cross-packaging.
 

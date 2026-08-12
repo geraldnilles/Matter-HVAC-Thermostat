@@ -48,7 +48,7 @@ Format rules (spec §5.1.1): scalar files are UTF-8 text with exactly one traili
 | IPC paths, atomic write/read helpers, scalar+JSON readers/writers | `src/utils.py` — **read this first** |
 | Boot-time seeding of IPC from `defaults.json`; one-shot service | `src/setup.py` |
 | Govee H5075 BLE decoding, allowlist, rolling averages, aggregation, 24 h history, failure→failsafe | `src/sensor.py` |
-| Hysteresis, mode logic, auto conflict resolution, 7 °F setpoint gap, 120 s dwell, 60 s startup delay, data failsafe | `src/control.py` |
+| Hysteresis, mode logic, auto conflict resolution, 8 °F setpoint gap, 120 s dwell, 60 s startup delay, data failsafe | `src/control.py` |
 | Relay actuation (`gpioset`, libgpiod v1/v2 auto-detect), pin mapping, shutdown failsafe to OFF | `src/gpio.py` |
 | HA MQTT discovery payload, state publication, command subscription | `src/mqtt.py` |
 | Flask WebUI + REST API endpoints, history graph | `src/web.py`, `src/templates/index.html` |
@@ -133,11 +133,12 @@ MQTT broker config comes from the `mqtt` section of `defaults.json` (broker, por
 
 ## WebUI REST API (`src/web.py`)
 
-- `GET /` — HTML dashboard (auto-refresh 30 s) with live temp, mode/setpoint controls, 24 h history graph
+- `GET /` — HTML dashboard (auto-refresh 30 s) with live temp, mode/setpoint controls, 24 h history graph; setpoint controls use a single +/- button pair that adjusts heat and cool setpoints simultaneously
 - `GET /api/state` — full state as JSON (includes `history`)
 - `POST /api/mode` — `{"mode": "off"|"cool"|"heat"|"auto"}`
 - `POST /api/fan` — `{"fan": "auto"|"on"}`
-- `POST /api/setpoint` — `{"type": "cool"|"heat", "value": <float>}`
+- `POST /api/setpoint` — `{"type": "cool"|"heat", "value": <float>}` (single-setpoint override; retained for compatibility)
+- `POST /api/setpoints` — `{"delta": <float>}` — adjusts both setpoints together (used by WebUI +/- buttons)
 
 ## Build, install & packaging
 
