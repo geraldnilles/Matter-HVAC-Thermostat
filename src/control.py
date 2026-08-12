@@ -251,35 +251,45 @@ class ControlDaemon:
         
         return True
     
+    def _step(self):
+        """
+        Execute one iteration of the control loop.
+
+        Extracted from run() so the loop body can be exercised deterministically
+        in tests without threads or real time. Behavior is identical to a single
+        pass of run(): enforce the startup delay, read inputs, compute the
+        desired action, then apply it if the dwell timer allows.
+        """
+        # Startup safety delay
+        if not self.startup_complete:
+            elapsed = self._seconds_since_startup()
+            if elapsed < STARTUP_DELAY:
+                return
+            self.startup_complete = True
+            self.last_state_change = time.time()  # Start dwell timer after init
+            print("Startup complete, entering control loop")
+
+        # Read all inputs
+        inputs = self._read_inputs()
+
+        # Calculate what we want to do
+        desired = self._calculate_desired_action(inputs)
+
+        # Check if we're allowed to change (dwell timer)
+        if self._should_change_state(desired):
+            self._write_action(desired)
+        else:
+            # Just ensure the file matches our internal state
+            write_scalar(HVAC_ACTION_FILE, self.current_action.value)
+
     def run(self):
         """Main control loop."""
         print("Control Daemon starting...")
         print(f"Waiting {STARTUP_DELAY}s startup safety delay...")
-        
+
         while True:
             time.sleep(POLL_INTERVAL)
-            
-            # Startup safety delay
-            if not self.startup_complete:
-                elapsed = self._seconds_since_startup()
-                if elapsed < STARTUP_DELAY:
-                    continue
-                self.startup_complete = True
-                self.last_state_change = time.time()  # Start dwell timer after init
-                print("Startup complete, entering control loop")
-            
-            # Read all inputs
-            inputs = self._read_inputs()
-            
-            # Calculate what we want to do
-            desired = self._calculate_desired_action(inputs)
-            
-            # Check if we're allowed to change (dwell timer)
-            if self._should_change_state(desired):
-                self._write_action(desired)
-            else:
-                # Just ensure the file matches our internal state
-                write_scalar(HVAC_ACTION_FILE, self.current_action.value)
+            self._step()
 
 
 def main():

@@ -147,6 +147,13 @@ MQTT broker config comes from the `mqtt` section of `defaults.json` (broker, por
 - Cross-packaging (Yocto): `make install DESTDIR=$STAGING_DIR PREFIX=/usr SYSCONFDIR=/etc UNITDIR=/lib/systemd/system`.
 - Run daemons manually for testing: `python3 src/sensor.py` etc. They expect `/etc/thermostat/defaults.json` and `/run/thermostat/`.
 
+## Testing
+
+- Suite lives in [`tests/`](tests/) and uses only the standard library (`unittest`) — no third-party test deps required.
+- All tests are hardware- and GPIO-free: IPC state is redirected into a per-test temp dir and the wall clock is spoofed (`tests/ipc_env.py`), so `/run/thermostat` and real time are never used.
+- Run from the repo root: `venv/bin/python -m unittest discover -s tests -v` (or `python3 -m unittest discover -s tests -v`).
+- `src/control.py` exposes `ControlDaemon._step()` (one loop iteration) so its logic is testable without running the infinite `run()` loop.
+
 ## Developer conventions
 
 1. **Every IPC write must go through `utils.atomic_write()`** (or `write_scalar`/`write_json`). No plain `open(..., "w")` on shared files. Concurrent writers (MQTT + WebUI) are expected.

@@ -2,3 +2,4 @@
 src/__pycache__/
 .bash_agent_tmp/
 venv
+tests/__pycache__/
