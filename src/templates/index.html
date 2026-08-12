@@ -115,7 +115,25 @@
         .status.fan { background: #c8e6c9; color: #2e7d32; }
         #chart {
             width: 100%;
-            height: 300px;
+            height: 360px;
+        }
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: #555;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .legend-swatch {
+            width: 14px;
+            height: 3px;
+            border-radius: 2px;
         }
         .refresh-btn {
             width: 100%;
@@ -196,6 +214,7 @@
     
     <div class="card">
         <label>24-Hour Temperature History</label>
+        <div class="legend" id="chart-legend"></div>
         <canvas id="chart"></canvas>
     </div>
     
@@ -303,16 +322,48 @@
                 return;
             }
             
+            // Discover all sensor names across history
+            const sensorSet = new Set();
+            history.forEach(h => {
+                if (h.sensors) Object.keys(h.sensors).forEach(name => sensorSet.add(name));
+            });
+            const sensorNames = Array.from(sensorSet);
+            
+            // Color palette for per-room lines
+            const palette = [
+                '#4CAF50', '#FF9800', '#9C27B0', '#F44336',
+                '#00BCD4', '#795548', '#8BC34A', '#E91E63',
+                '#3F51B5', '#FF5722', '#009688', '#FFC107'
+            ];
+            const sensorColors = {};
+            sensorNames.forEach((name, i) => {
+                sensorColors[name] = palette[i % palette.length];
+            });
+            
             const padding = 40;
             const chartW = canvas.width - padding * 2;
             const chartH = canvas.height - padding * 2;
             
-            // Find min/max for scaling
+            // Find min/max for scaling across avg and all sensors
             let minTemp = Infinity, maxTemp = -Infinity;
             history.forEach(h => {
-                minTemp = Math.min(minTemp, h.avg);
-                maxTemp = Math.max(maxTemp, h.avg);
+                if (typeof h.avg === 'number') {
+                    minTemp = Math.min(minTemp, h.avg);
+                    maxTemp = Math.max(maxTemp, h.avg);
+                }
+                if (h.sensors) {
+                    Object.values(h.sensors).forEach(v => {
+                        minTemp = Math.min(minTemp, v);
+                        maxTemp = Math.max(maxTemp, v);
+                    });
+                }
             });
+            if (!isFinite(minTemp) || !isFinite(maxTemp)) {
+                ctx.fillStyle = '#999';
+                ctx.textAlign = 'center';
+                ctx.fillText('Not enough data', canvas.width/2, canvas.height/2);
+                return;
+            }
             const tempRange = maxTemp - minTemp || 1;
             
             // Clear
@@ -327,35 +378,81 @@
             ctx.lineTo(canvas.width - padding, canvas.height - padding);
             ctx.stroke();
             
-            // Draw temperature line
-            ctx.strokeStyle = '#2196F3';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
+            const xAt = (i) => padding + (i / (history.length - 1)) * chartW;
+            const yAt = (temp) => canvas.height - padding - ((temp - minTemp) / tempRange) * chartH;
             
+            // Draw per-sensor temperature lines
+            sensorNames.forEach(name => {
+                const color = sensorColors[name];
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                let started = false;
+                history.forEach((h, i) => {
+                    const temp = h.sensors && h.sensors[name];
+                    if (typeof temp !== 'number') {
+                        started = false;  // break line if sensor data missing
+                        return;
+                    }
+                    const x = xAt(i);
+                    const y = yAt(temp);
+                    if (!started) {
+                        ctx.moveTo(x, y);
+                        started = true;
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.stroke();
+            });
+            
+            // Draw average temperature line (darker/thicker on top)
+            ctx.strokeStyle = '#2196F3';
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
             history.forEach((h, i) => {
-                const x = padding + (i / (history.length - 1)) * chartW;
-                const y = canvas.height - padding - ((h.avg - minTemp) / tempRange) * chartH;
+                const x = xAt(i);
+                const y = yAt(h.avg);
                 if (i === 0) ctx.moveTo(x, y);
                 else ctx.lineTo(x, y);
             });
             ctx.stroke();
             
-            // Draw points
-            ctx.fillStyle = '#2196F3';
-            history.forEach((h, i) => {
-                const x = padding + (i / (history.length - 1)) * chartW;
-                const y = canvas.height - padding - ((h.avg - minTemp) / tempRange) * chartH;
-                ctx.beginPath();
-                ctx.arc(x, y, 3, 0, Math.PI * 2);
-                ctx.fill();
-            });
-            
-            // Labels
+            // Y-axis labels
             ctx.fillStyle = '#666';
             ctx.font = '12px sans-serif';
             ctx.textAlign = 'right';
             ctx.fillText(maxTemp.toFixed(1) + '°F', padding - 5, padding + 5);
             ctx.fillText(minTemp.toFixed(1) + '°F', padding - 5, canvas.height - padding);
+            
+            // X-axis time labels (start / end)
+            const fmtTime = (ts) => {
+                const d = new Date(ts * 1000);
+                return d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+            };
+            ctx.textAlign = 'center';
+            ctx.fillText(fmtTime(history[0].t), padding, canvas.height - padding + 18);
+            ctx.fillText(fmtTime(history[history.length - 1].t), canvas.width - padding, canvas.height - padding + 18);
+            
+            // Legend
+            const legend = document.getElementById('chart-legend');
+            legend.innerHTML = '';
+            const addLegendItem = (label, color, bold) => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                const swatch = document.createElement('span');
+                swatch.className = 'legend-swatch';
+                swatch.style.background = color;
+                swatch.style.height = bold ? '4px' : '3px';
+                const text = document.createElement('span');
+                text.textContent = label;
+                if (bold) text.style.fontWeight = 'bold';
+                item.appendChild(swatch);
+                item.appendChild(text);
+                legend.appendChild(item);
+            };
+            addLegendItem('Average', '#2196F3', true);
+            sensorNames.forEach(name => addLegendItem(name, sensorColors[name], false));
         }
         
         // Load state on page load and every 30 seconds

@@ -184,7 +184,7 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Network:** Binds to `0.0.0.0:5000`.
 * **Functionality:**
     * Simple HTML interface for manual control.
-    * Visualizes 24-hour temperature history graph (reads `history.json`).
+    * Visualizes 24-hour temperature history graph (reads `history.json`). Plots a line for each room from the per-sensor readings, plus a bold average line; a color-coded legend identifies each line.
     * Auto-refreshes state every 30 seconds via JavaScript.
 * **REST API Endpoints:**
     * `GET /` - HTML interface
