@@ -48,7 +48,7 @@ Format rules (spec §5.1.1): scalar files are UTF-8 text with exactly one traili
 | IPC paths, atomic write/read helpers, scalar+JSON readers/writers | `src/utils.py` — **read this first** |
 | Boot-time seeding of IPC from `defaults.json`; one-shot service | `src/setup.py` |
 | Govee H5075 BLE decoding, allowlist, rolling averages, aggregation, 24 h history, failure→failsafe | `src/sensor.py` |
-| Hysteresis, mode logic, auto conflict resolution, 7 °F setpoint gap, 60 s dwell, 60 s startup delay, data failsafe | `src/control.py` |
+| Hysteresis, mode logic, auto conflict resolution, 7 °F setpoint gap, 120 s dwell, 60 s startup delay, data failsafe | `src/control.py` |
 | Relay actuation (`gpioset`, libgpiod v1/v2 auto-detect), pin mapping, shutdown failsafe to OFF | `src/gpio.py` |
 | HA MQTT discovery payload, state publication, command subscription | `src/mqtt.py` |
 | Flask WebUI + REST API endpoints, history graph | `src/web.py`, `src/templates/index.html` |
@@ -86,7 +86,7 @@ All defined as module-level constants in the daemons. They are safety- or comfor
 | `HISTORY_MAX_ENTRIES` | 1440 | 24 h at 1-min |
 | `HYSTERESIS` | 0.5 °F | ±0.5 °F around setpoint (1 °F swing) |
 | `MIN_SETPOINT_GAP` | 8.0 °F | heat/cool separation (auto-expands symmetrically around midpoint) |
-| `MIN_DWELL_TIME` | 60 s | minimum time between state transitions — overrides even manual commands (compressor protection) |
+| `MIN_DWELL_TIME` | 120 s | minimum time between state transitions — overrides even manual commands (compressor protection) |
 | `STARTUP_DELAY` | 60 s | control daemon startup safety delay |
 | `POLL_INTERVAL` | 1.0 s | control/gpio loop cadence |
 | MQTT `POLL_INTERVAL` | 5.0 s | state topic publish cadence |
@@ -101,7 +101,8 @@ All defined as module-level constants in the daemons. They are safety- or comfor
 - **`fan_mode: on`** → `hvac_action = fan` whenever the system would otherwise be idle, even in `system_mode: off`.
 - **Data failsafe:** missing `min_temp`/`max_temp` → force `idle`.
 - Setpoint separation is re-derived from local IPC values on every cycle; adjusted setpoints are **written back** to IPC so the UI/MQTT show effective values. Setpoint separation expands symmetrically around a midpoint **snapped to the nearest whole degree** (see `utils.round_degree()`); all setpoint writes (MQTT, WebUI) are snapped to the nearest whole degree to prevent fractional artifacts, and control snaps its IPC inputs on every cycle so stale fractional values self-heal.
-- The 60 s dwell timer blocks *all* state changes (checked before any write) — it is not bypassed by user commands.
+- The 120 s dwell timer blocks *all* state changes (checked before any write) — it is not bypassed by user commands.
+- **Post-cycle fan purge:** When heating or cooling satisfies demand, the daemon transitions to `hvac_action = fan` for `MIN_DWELL_TIME` (120 s) before returning to `idle` (if `fan_mode: auto`), extracting residual thermal energy from the HVAC unit.
 
 ## MQTT interface (`src/mqtt.py`)
 

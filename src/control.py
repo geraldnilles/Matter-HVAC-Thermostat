@@ -47,7 +47,7 @@ class HvacAction(Enum):
 
 # Timing constants (seconds)
 STARTUP_DELAY = 60  # 60-second startup safety
-MIN_DWELL_TIME = 60  # 60-second minimum dwell time
+MIN_DWELL_TIME = 120  # 120-second minimum dwell time
 POLL_INTERVAL = 1.0  # Main loop polling rate
 
 # Temperature constants
@@ -219,6 +219,10 @@ class ControlDaemon:
             desired = HvacAction.HEATING
         elif want_cool:
             desired = HvacAction.COOLING
+        elif self.current_action in (HvacAction.HEATING, HvacAction.COOLING):
+            # Post-cycle fan purge: when heating/cooling completes, run the
+            # fan for the minimum dwell time to extract residual thermal energy
+            desired = HvacAction.FAN
         else:
             desired = HvacAction.IDLE
         
@@ -233,7 +237,7 @@ class ControlDaemon:
         """
         Check if state change is allowed considering dwell time.
         
-        The 60-second dwell timer overrides ALL other inputs.
+        The 120-second dwell timer overrides ALL other inputs.
         """
         if desired == self.current_action:
             return False

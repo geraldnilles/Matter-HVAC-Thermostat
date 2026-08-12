@@ -123,6 +123,7 @@ The system is divided into five primary daemons managed by `systemd`.
     * **Fan Mode "on":** The Fan relay is **ON**, regardless of `system_mode`. This allows air circulation even if `system_mode` is "off". If the system is actively heating or cooling, it maintains that state; only when idle does "fan on" switch to fan-only mode.
     * **System Mode "off":** The Compressor and Heat relays are forced **OFF**.
     * **Fan Mode "auto":** The Fan relay matches the state of the Compressor/Heat relays (ON when active, OFF when idle).
+    * **Post-Cycle Fan Purge:** When a heating or cooling cycle completes (`want_heat` and `want_cool` become false while in `heating` or `cooling` state), the system transitions to the `fan` action for the duration of the minimum dwell time (120 s) before transitioning to `idle` (when `fan_mode` is `auto`). This purges residual heat or cool air from the HVAC equipment into the home.
 
 * **Hysteresis:** +/- 0.5°F (1°F total swing). Logic is **Centered** on the setpoint.
     * *Example (Heating):* If Setpoint is 70°F -> Turn ON at 69.5°F, Turn OFF at 70.5°F.
@@ -135,8 +136,8 @@ The system is divided into five primary daemons managed by `systemd`.
 
 * **Safety Guards:**
     * **Startup Safety:** Upon service start (or restart), the daemon must pause for 60 seconds internally before calculating any logic or writing to `hvac_action`. This safety delay is implemented within the Control Daemon Python code (`STARTUP_DELAY = 60`). This ensures compressor safety if the daemon crashes and restarts, as the internal memory of the "last state change" is lost.
-    * **Minimum Dwell Time:** Enforce a strict 1-minute duration for all states. Once the system enters a state (idle, heating, cooling, fan), it must remain in that state for at least 60 seconds before transitioning to any other state. **This rule overrides all other inputs, including manual user changes to mode or setpoint.**
-        * *Example:* If the system is actively cooling and the user switches the mode to "Off", the system **MUST** complete the full 60-second cooling cycle before shutting down relays.
+    * **Minimum Dwell Time:** Enforce a strict 2-minute duration for all states. Once the system enters a state (idle, heating, cooling, fan), it must remain in that state for at least 120 seconds before transitioning to any other state. **This rule overrides all other inputs, including manual user changes to mode or setpoint.**
+        * *Example:* If the system is actively cooling and the user switches the mode to "Off", the system **MUST** complete the full 120-second cooling cycle before shutting down relays.
     * **Auto Separation:** Enforce minimum 8°F gap between Heat/Cool setpoints. When setpoints violate this gap (e.g., setting heat to 72°F when cool is 75°F), **both** setpoints are automatically adjusted symmetrically around their average (snapped to the nearest whole degree) to maintain the 8°F minimum separation (e.g., adjusting to heat=70°F and cool=78°F). Adjusted setpoints are immediately written back to IPC files so the UI displays effective values. All setpoint writes (MQTT, WebUI, control write-back) are snapped to whole-degree steps to prevent fractional artifacts (e.g. 73.125°F) in IPC files.
     * **Data Failsafe:** If no fresh sensor data is available (cannot read `min_temp` or `max_temp`), force system to "idle" state (all relays OFF).
 
