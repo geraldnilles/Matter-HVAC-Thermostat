@@ -49,7 +49,7 @@ Format rules (spec §5.1.1): scalar files are UTF-8 text with exactly one traili
 | Boot-time seeding of IPC from `defaults.json`; one-shot service | `src/setup.py` |
 | Govee H5075 BLE decoding, allowlist, rolling averages, aggregation, 24 h history, failure→failsafe | `src/sensor.py` |
 | Hysteresis, mode logic, auto conflict resolution, 7 °F setpoint gap, 60 s dwell, 60 s startup delay, data failsafe | `src/control.py` |
-| Relay actuation (`gpioset`), pin mapping, shutdown failsafe to OFF | `src/gpio.py` |
+| Relay actuation (`gpioset`, libgpiod v1/v2 auto-detect), pin mapping, shutdown failsafe to OFF | `src/gpio.py` |
 | HA MQTT discovery payload, state publication, command subscription | `src/mqtt.py` |
 | Flask WebUI + REST API endpoints, history graph | `src/web.py`, `src/templates/index.html` |
 | Default config: sensor MAC allowlist, initial modes/setpoints, MQTT broker | `config/defaults.json` |

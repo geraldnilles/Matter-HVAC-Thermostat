@@ -23,6 +23,35 @@ POLL_INTERVAL = 1.0  # seconds
 gpio_process = None
 
 
+def detect_chip_flag() -> bool:
+    """
+    Check if gpioset requires the -c/--chip flag (libgpiod v2+).
+
+    libgpiod v1 syntax: gpioset <chip> <line>=<val> ...
+    libgpiod v2 syntax: gpioset -c <chip> <line>=<val> ...
+    """
+    try:
+        res = subprocess.run(["gpioset", "--version"], capture_output=True, text=True, check=False)
+        output = (res.stdout or "") + (res.stderr or "")
+        if "v1." in output or " 1." in output:
+            return False
+    except Exception:
+        pass
+    # Default to True (v2) for Debian 12 / Bookworm on Raspberry Pi OS
+    return True
+
+
+USE_CHIP_FLAG = detect_chip_flag()
+
+
+def build_gpioset_cmd(chip: str, pin_values: list[tuple[int, int]]) -> list[str]:
+    """Construct gpioset command arguments matching the installed libgpiod version."""
+    line_args = [f"{pin}={val}" for pin, val in pin_values]
+    if USE_CHIP_FLAG:
+        return ["gpioset", "-c", chip] + line_args
+    return ["gpioset", chip] + line_args
+
+
 def set_all_low():
     """Set all GPIO pins to LOW (failsafe) and cleanup subprocess."""
     global gpio_process
@@ -37,12 +66,12 @@ def set_all_low():
         gpio_process = None
     
     # One-shot set to 0 (release immediately)
-    subprocess.run([
-        "gpioset", CHIP,
-        f"{PINS['fan']}=0",
-        f"{PINS['compressor']}=0",
-        f"{PINS['heat']}=0"
-    ], check=False)
+    cmd = build_gpioset_cmd(CHIP, [
+        (PINS['fan'], 0),
+        (PINS['compressor'], 0),
+        (PINS['heat'], 0)
+    ])
+    subprocess.run(cmd, check=False)
 
 
 def apply_state(action: str):
@@ -77,12 +106,11 @@ def apply_state(action: str):
             gpio_process.wait()
     
     # Spawn new gpioset to hold lines in new state
-    cmd = [
-        "gpioset", CHIP,
-        f"{PINS['fan']}={fan_val}",
-        f"{PINS['compressor']}={comp_val}",
-        f"{PINS['heat']}={heat_val}"
-    ]
+    cmd = build_gpioset_cmd(CHIP, [
+        (PINS['fan'], fan_val),
+        (PINS['compressor'], comp_val),
+        (PINS['heat'], heat_val)
+    ])
     
     try:
         gpio_process = subprocess.Popen(cmd)
