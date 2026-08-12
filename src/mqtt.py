@@ -158,14 +158,14 @@ class MqttDaemon:
             
             elif topic == TOPIC_CMD_COOL:
                 try:
-                    temp = utils.round_half(float(payload))
+                    temp = utils.round_degree(float(payload))
                     write_scalar(SET_TEMP_COOL_FILE, temp)
                 except ValueError:
                     print(f"Invalid cool setpoint: {payload}")
             
             elif topic == TOPIC_CMD_HEAT:
                 try:
-                    temp = utils.round_half(float(payload))
+                    temp = utils.round_degree(float(payload))
                     write_scalar(SET_TEMP_HEAT_FILE, temp)
                 except ValueError:
                     print(f"Invalid heat setpoint: {payload}")
@@ -178,11 +178,11 @@ class MqttDaemon:
     def _publish_discovery(self):
         """Publish Home Assistant MQTT Discovery configuration with retain flag."""
         discovery_payload = {
-            "name": "Thermostat",
+            "name": "HVAC Thermostat",
             "unique_id": "thermostat_hvac_control",
             "device": {
                 "identifiers": ["thermostat_hvac_control"],
-                "name": "Thermostat",
+                "name": "HVAC Thermostat",
                 "model": "Raspberry Pi HVAC Thermostat",
                 "manufacturer": "Custom",
             },

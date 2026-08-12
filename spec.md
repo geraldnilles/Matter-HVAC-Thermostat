@@ -137,7 +137,7 @@ The system is divided into five primary daemons managed by `systemd`.
     * **Startup Safety:** Upon service start (or restart), the daemon must pause for 60 seconds internally before calculating any logic or writing to `hvac_action`. This safety delay is implemented within the Control Daemon Python code (`STARTUP_DELAY = 60`). This ensures compressor safety if the daemon crashes and restarts, as the internal memory of the "last state change" is lost.
     * **Minimum Dwell Time:** Enforce a strict 1-minute duration for all states. Once the system enters a state (idle, heating, cooling, fan), it must remain in that state for at least 60 seconds before transitioning to any other state. **This rule overrides all other inputs, including manual user changes to mode or setpoint.**
         * *Example:* If the system is actively cooling and the user switches the mode to "Off", the system **MUST** complete the full 60-second cooling cycle before shutting down relays.
-    * **Auto Separation:** Enforce minimum 7°F gap between Heat/Cool setpoints. When setpoints violate this gap (e.g., setting heat to 72°F when cool is 75°F), **both** setpoints are automatically adjusted symmetrically around their average (snapped to the nearest 0.5°F) to maintain the 7°F minimum separation (e.g., adjusting to heat=70°F and cool=77°F). Adjusted setpoints are immediately written back to IPC files so the UI displays effective values. All setpoint writes (MQTT, WebUI, control write-back) are snapped to 0.5°F steps to prevent fractional artifacts (e.g. 73.125°F) in IPC files.
+    * **Auto Separation:** Enforce minimum 8°F gap between Heat/Cool setpoints. When setpoints violate this gap (e.g., setting heat to 72°F when cool is 75°F), **both** setpoints are automatically adjusted symmetrically around their average (snapped to the nearest whole degree) to maintain the 8°F minimum separation (e.g., adjusting to heat=70°F and cool=78°F). Adjusted setpoints are immediately written back to IPC files so the UI displays effective values. All setpoint writes (MQTT, WebUI, control write-back) are snapped to whole-degree steps to prevent fractional artifacts (e.g. 73.125°F) in IPC files.
     * **Data Failsafe:** If no fresh sensor data is available (cannot read `min_temp` or `max_temp`), force system to "idle" state (all relays OFF).
 
 * **Output:** Writes intended state to `hvac_action` (IPC).
@@ -207,8 +207,8 @@ The system is divided into five primary daemons managed by `systemd`.
 | `history.json` | Sensor | `JSON` | List of objects: `[{"t": timestamp, "avg": float, "sensors": {"id": float, ...}}, ...]` |
 | `system_mode` | MQTT, Web | `string` | "off", "cool", "heat", "auto". |
 | `fan_mode` | MQTT, Web | `string` | "auto", "on". |
-| `set_temp_cool` | MQTT, Web, Control | `float` | Cooling target. May be adjusted by Control Daemon to enforce 7°F gap. |
-| `set_temp_heat` | MQTT, Web, Control | `float` | Heating target. May be adjusted by Control Daemon to enforce 7°F gap. |
+| `set_temp_cool` | MQTT, Web, Control | `float` | Cooling target. May be adjusted by Control Daemon to enforce 8°F gap. |
+| `set_temp_heat` | MQTT, Web, Control | `float` | Heating target. May be adjusted by Control Daemon to enforce 8°F gap. |
 | `hvac_action` | Control | `string` | Current action: "idle", "heating", "cooling", "fan". |
 
 ### 5.1.1 Data Format Standards
