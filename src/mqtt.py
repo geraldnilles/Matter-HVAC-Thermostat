@@ -89,14 +89,14 @@ POLL_INTERVAL = 5.0  # seconds
 
 def _to_hass_mode(mode: str) -> str:
     """Convert an internal system mode to the Home Assistant MQTT term."""
-    return mode
-    #return "heat_cool" if mode == "auto" else mode
+    #return mode
+    return "heat_cool" if mode == "auto" else mode
 
 
 def _from_hass_mode(mode: str) -> str:
     """Convert a Home Assistant MQTT mode to the internal system term."""
-    return mode
-    #return "auto" if mode == "heat_cool" else mode
+    #return mode
+    return "auto" if mode == "heat_cool" else mode
 
 
 class MqttDaemon:
@@ -156,7 +156,7 @@ class MqttDaemon:
         
         try:
             if topic == TOPIC_CMD_MODE:
-                valid_modes = ["off", "cool", "heat", "auto"]
+                valid_modes = ["off", "cool", "heat", "heat_cool"]
                 if payload in valid_modes:
                     write_scalar(SYSTEM_MODE_FILE, _from_hass_mode(payload))
                 else:
@@ -209,7 +209,7 @@ class MqttDaemon:
             "mode_state_topic": TOPIC_STATE,
             "mode_state_template": "{{ value_json.system_mode }}",
             "mode_command_topic": TOPIC_CMD_MODE,
-            "modes": ["off", "cool", "heat", "auto"],
+            "modes": ["off", "cool", "heat", "heat_cool"],
             "fan_mode_state_topic": TOPIC_STATE,
             "fan_mode_state_template": "{{ value_json.fan_mode }}",
             "fan_mode_command_topic": TOPIC_CMD_FAN,
