@@ -98,7 +98,10 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Logic:**
     * **Whitelist Filter:** Only process advertisements from MAC addresses explicitly defined in `/etc/thermostat/defaults.json`. Ignore all unknown devices.
     * **Rolling Buffer:** Maintain a 2-minute rolling buffer of readings for each sensor to smooth noise. New readings replace old ones beyond the 2-minute window.
-    * **Stale Data:** Discard any sensor data older than 2 minutes immediately.
+    * **Stale Data:** Discard any sensor data older than 2 minutes immediately. An uninitialized buffer (no readings yet) is also treated as stale.
+    * **Scanner Resilience:** The daemon monitors for conditions that silently stall `BleakScanner`'s D-Bus/BlueZ subscription and automatically re-initializes the scanner:
+        * **Clock Jump Detection:** Each 5 s loop tick compares wall-clock elapsed time (`time.time()`) against monotonic elapsed time (`time.monotonic()`). If they diverge by more than 10 s (`CLOCK_JUMP_THRESHOLD`), a system clock step (e.g. NTP sync) is assumed and the scanner is restarted.
+        * **Scan Watchdog:** If no BLE advertisement is received for more than 45 s (`SCANNER_WATCHDOG_TIMEOUT`), the scanner is restarted to recover from a silent D-Bus stall.
     * **History:** Maintain a ring buffer for the last 24 hours in RAM with a **1-minute sampling interval** (1440 entries max). Each entry is a JSON object with:
       * `t`: Unix Epoch timestamp (integer seconds)
       * `avg`: Average temperature across all valid sensors (float, 2 decimal places)

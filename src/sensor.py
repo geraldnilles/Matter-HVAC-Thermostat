@@ -44,6 +44,10 @@ HISTORY_MAX_ENTRIES = 1440  # 24 hours at 1-minute intervals
 # 0xEC88 = 60552
 GOVEE_MANUFACTURER_ID = 60552
 
+# Scanner recovery constants (seconds)
+CLOCK_JUMP_THRESHOLD = 10.0  # wall-vs-mono drift beyond this is treated as an NTP step
+SCANNER_WATCHDOG_TIMEOUT = 45.0  # restart scanner if no advertisements for this long
+
 
 class SensorBuffer:
     """Rolling buffer for a single sensor's temperature readings."""
@@ -71,6 +75,8 @@ class SensorBuffer:
     
     def is_valid(self, now: float) -> bool:
         """Check if sensor data is fresh (not stale)."""
+        if not self.readings:
+            return False
         return (now - self.last_seen) < SENSOR_TIMEOUT
     
     def get_latest(self) -> float | None:
@@ -87,6 +93,9 @@ class SensorDaemon:
         self.sensors = {}  # mac -> SensorBuffer
         self.history = deque(maxlen=HISTORY_MAX_ENTRIES)
         self.last_history_update = 0
+        self.last_wall_time = time.time()
+        self.last_mono_time = time.monotonic()
+        self.last_adv_mono_time = time.monotonic()
         
         # Load allowlist from defaults
         self.allowlist = self._load_allowlist()
@@ -150,6 +159,7 @@ class SensorDaemon:
             return
         
         now = time.monotonic()
+        self.last_adv_mono_time = now
         self.sensors[mac].add_reading(now, temp)
         print(f"Sensor {self.allowlist[mac]} ({mac}): {temp:.2f}°F")
     
@@ -232,6 +242,22 @@ class SensorDaemon:
         """Persist history to IPC file."""
         write_json(HISTORY_FILE, list(self.history))
     
+    async def _restart_scanner(self, scanner: BleakScanner):
+        """Stop and restart BleakScanner to recover D-Bus/BlueZ subscription state."""
+        print("Restarting BLE scanner to recover D-Bus state...")
+        try:
+            await scanner.stop()
+        except Exception as e:
+            print(f"Warning during scanner stop: {e}")
+
+        await asyncio.sleep(1.0)
+
+        try:
+            await scanner.start()
+            print("BLE scanner restarted successfully.")
+        except Exception as e:
+            print(f"Error starting BLE scanner: {e}")
+
     async def run(self):
         """Main daemon loop."""
         print("Sensor Daemon starting...")
@@ -251,7 +277,33 @@ class SensorDaemon:
             while True:
                 await asyncio.sleep(5)  # Process loop every 5 seconds
                 
+                wall_now = time.time()
                 mono_now = time.monotonic()
+
+                wall_elapsed = wall_now - self.last_wall_time
+                mono_elapsed = mono_now - self.last_mono_time
+
+                self.last_wall_time = wall_now
+                self.last_mono_time = mono_now
+
+                # 1. Clock Jump Detection (e.g. NTP sync)
+                if abs(wall_elapsed - mono_elapsed) > CLOCK_JUMP_THRESHOLD:
+                    print(
+                        f"System clock jump detected! "
+                        f"(wall delta: {wall_elapsed:.1f}s, mono delta: {mono_elapsed:.1f}s)"
+                    )
+                    await self._restart_scanner(scanner)
+                    self.last_adv_mono_time = mono_now
+
+                # 2. Scanner Stagnation Watchdog (no ads for > SCANNER_WATCHDOG_TIMEOUT)
+                elif mono_now - self.last_adv_mono_time > SCANNER_WATCHDOG_TIMEOUT:
+                    print(
+                        f"No BLE advertisements received for "
+                        f"{mono_now - self.last_adv_mono_time:.1f}s. Scanner stalled."
+                    )
+                    await self._restart_scanner(scanner)
+                    self.last_adv_mono_time = mono_now
+
                 valid_sensors = self._get_valid_sensors(mono_now)
                 
                 # Update outputs

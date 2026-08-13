@@ -87,6 +87,8 @@ All defined as module-level constants in the daemons. They are safety- or comfor
 | `ROLLING_WINDOW` | 120 s | per-sensor rolling average |
 | `HISTORY_INTERVAL` | 60 s | history sampling rate |
 | `HISTORY_MAX_ENTRIES` | 1440 | 24 h at 1-min |
+| `CLOCK_JUMP_THRESHOLD` | 10.0 s | wall-vs-mono drift treated as an NTP clock step |
+| `SCANNER_WATCHDOG_TIMEOUT` | 45.0 s | restart BleakScanner if no advertisements for this long |
 | `HYSTERESIS` | 0.5 °F | ±0.5 °F around setpoint (1 °F swing) |
 | `MIN_SETPOINT_GAP` | 8.0 °F | heat/cool separation (auto-expands symmetrically around midpoint) |
 | `MIN_DWELL_TIME` | 120 s | minimum time between state transitions — overrides even manual commands (compressor protection) |
