@@ -162,25 +162,23 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Configuration:** Broker host, port, and optional username/password are loaded from the `mqtt` object in `/etc/thermostat/defaults.json`. If `username` is empty, the daemon connects without authentication.
 * **Broker Location:** The broker is **not** hosted on the Pi — the thermostat connects to the MQTT broker that runs on the separate Home Assistant device (e.g., the Mosquitto broker add-on/`mosquitto` package in Home Assistant OS). No local MQTT broker service is installed or started by this project.
 * **Protocol:** MQTT Climate entity.
-* **Mode Name Mapping:** Modes are passed through directly between Home Assistant and internal IPC with no translation. The internal `auto` mode is published to and accepted from Home Assistant as `auto` (dual setpoint control), so the HA Matter hub advertises a climate device that can heat and cool simultaneously.
+* **Mode Name Mapping:** The internal `auto` mode (used everywhere in IPC, WebUI, and config) is published to Home Assistant as `heat_cool` (Home Assistant's term for a climate device that can heat and cool simultaneously). Incoming `heat_cool` commands are translated back to `auto` before being written to IPC. No other mode names are affected.
 * **Topic Structure:**
     * **State Publication:** `thermostat/state` (JSON with temperature, mode, setpoints, action)
     * **Availability:** `thermostat/availability` (`online`/`offline`)
     * **HA Discovery:** `homeassistant/climate/thermostat/config` (Retained JSON payload)
     * **Command Topics (Inbound):**
-        * `thermostat/mode/set` - Values: `off`, `cool`, `heat`, `auto`
+        * `thermostat/mode/set` - Values: `off`, `cool`, `heat`, `heat_cool`
         * `thermostat/fan/set` - Values: `auto`, `on`
-        * `thermostat/cool/set` - Float value for cooling setpoint (range high)
-        * `thermostat/heat/set` - Float value for heating setpoint (range low)
-        * `thermostat/temperature/set` - Float value for single target temperature; in `auto` mode it shifts both setpoints together around their midpoint
+        * `thermostat/cool/set` - Float value for cooling setpoint
+        * `thermostat/heat/set` - Float value for heating setpoint
 * **Matter Compatible Attributes:** Maps to:
   * `local_temperature`: Current average temperature
-  * `system_mode`: Current mode (off/cool/heat/auto)
+  * `system_mode`: Current mode (off/cool/heat/heat_cool)
   * `fan_mode`: Current fan mode (auto/on)
   * `occupied_cooling_setpoint`: Cooling setpoint
   * `occupied_heating_setpoint`: Heating setpoint
   * `thermostat_running_state`: Current HVAC action (idle/heating/cooling/fan)
-* **Dual Setpoint Advertising:** The HA Discovery payload exposes both a single target temperature (via `temperature_state_topic`/`temperature_command_topic` → `thermostat/temperature/set`) and a target temperature range (via `temperature_high_*`/`temperature_low_*` → `thermostat/cool/set` + `thermostat/heat/set`). This populates both `TARGET_TEMPERATURE` and `TARGET_TEMPERATURE_RANGE` feature flags so Matter bridges advertise the thermostat correctly.
 * **Availability:** Publishes `online`/`offline` status to `thermostat/availability` with retain flag.
 * **Update Interval:** Publishes state every 5 seconds.
 * **Output:** Writes to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat`.
