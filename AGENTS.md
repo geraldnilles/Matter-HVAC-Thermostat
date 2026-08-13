@@ -20,6 +20,7 @@ A Matter-compatible HVAC thermostat running on a Raspberry Pi. A relay HAT provi
 | 4 | `thermostat-gpio` | The "muscle"; reads `hvac_action`, drives relays via `gpioset`; extra 60 s boot delay (`ExecStartPre`) | `systemd/thermostat-gpio.service` |
 | 5 | `thermostat-mqtt` | Home Assistant bridge; MQTT Climate entity with Matter-aligned attributes | `systemd/thermostat-mqtt.service` |
 | 5 | `thermostat-web` | Flask WebUI + REST API on `0.0.0.0:5000` | `systemd/thermostat-web.service` |
+| 6 | `thermostat-schedule` | Timer-driven setpoint profiles (6am / 11pm) | `systemd/thermostat-schedule-*.service` + `*.timer` |
 
 Dependency ordering: setup → sensor → control → gpio/mqtt/web. All daemons use `Restart=always` (5 s restarts). The GPIO service's `ExecStartPre=/bin/sleep 60` provides compressor-protection boot delay. The MQTT service connects to a remote broker on the Home Assistant device and has no local broker dependency.
 
@@ -35,8 +36,8 @@ All shared state lives in `/run/thermostat/` (tmpfs). **Every write must be atom
 | `history.json` | sensor | 24 h ring buffer, 1-min samples, `{"t": epoch, "avg": °F, "sensors": {name: °F}, "set_temp_cool": °F, "set_temp_heat": °F, "hvac_action": string}` (action + setpoints omitted when absent) |
 | `system_mode` | mqtt, web | `off` \| `cool` \| `heat` \| `auto` |
 | `fan_mode` | mqtt, web | `auto` \| `on` |
-| `set_temp_cool` | mqtt, web, control | Cooling setpoint °F |
-| `set_temp_heat` | mqtt, web, control | Heating setpoint °F |
+| `set_temp_cool` | mqtt, web, control, schedule | Cooling setpoint °F |
+| `set_temp_heat` | mqtt, web, control, schedule | Heating setpoint °F |
 | `hvac_action` | control | `idle` \| `heating` \| `cooling` \| `fan` |
 
 Format rules (spec §5.1.1): scalar files are UTF-8 text with exactly one trailing newline; structured files are compact JSON (`json.dumps(..., separators=(',', ':'))`).
@@ -53,8 +54,9 @@ Format rules (spec §5.1.1): scalar files are UTF-8 text with exactly one traili
 | HA MQTT discovery payload, state publication, command subscription | `src/mqtt.py` |
 | Flask WebUI + REST API endpoints, history graph | `src/web.py`, `src/templates/index.html` |
 | Hardware-free canned-data simulator for the WebUI (local testing) | `src/demo.py` |
+| Timer-driven setpoint profile helper (one-shot, snap + atomic write) | `src/schedule.py` |
 | Default config: sensor MAC allowlist, initial modes/setpoints, MQTT broker | `config/defaults.json` |
-| systemd units and ordering | `systemd/*.service` |
+| systemd units and ordering (services + timers) | `systemd/*.service`, `systemd/*.timer` |
 | Install/packaging rules (`DESTDIR`/`PREFIX`/`SYSCONFDIR`/`UNITDIR`) | `Makefile` |
 | Python deps: `flask`, `paho-mqtt`, `bleak` | `requirements.txt` |
 | Full system design doc | `spec.md` |
@@ -155,6 +157,21 @@ PYTHONPATH=src venv/bin/python src/web.py --demo --data-dir /tmp/demo-state
 ```
 
 Flags supported by `src/web.py`: `--host`, `--port`, `--data-dir` (IPC/test data directory), and `--demo` (canned data, no sensors/GPIOs/relays). With no arguments the daemon behaves exactly as before: it reads/writes `/run/thermostat` on `0.0.0.0:5000`.
+
+## Setpoint schedule (systemd timers)
+
+Two `oneshot` services triggered by systemd **timer** units apply a fixed daily
+setpoint profile by running `src/schedule.py --heat X --cool Y`:
+
+| Timer (`OnCalendar`) | Service | `--heat` | `--cool` |
+|---|---|---|---|
+| `*-*-* 06:00:00` | `thermostat-schedule-morning.service` | 68 | 76 |
+| `*-*-* 23:00:00` | `thermostat-schedule-night.service` | 67 | 75 |
+
+`src/schedule.py` snaps both setpoints to the nearest whole degree and writes
+them atomically via `utils.write_scalar` (same as MQTT/WebUI). The 8°F gap is
+still enforced downstream by the control daemon. Both timers use
+`Persistent=true` so a missed firing runs on next boot.
 
 ## Build, install & packaging
 

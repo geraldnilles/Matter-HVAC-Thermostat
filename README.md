@@ -12,6 +12,7 @@ Built to be boring and reliable: no cloud, no app to install, no YAML to fiddle 
 - **Protects your HVAC equipment** — 120-second minimum dwell between state changes (compressor protection), a 60-second startup delay, and normally-open relays so everything is OFF on power loss or reboot.
 - **Fails safe on bad data** — if sensor data goes stale, the HVAC is forced off instead of guessing.
 - **Setpoint protection** — heat and cool setpoints are kept at least 8 °F apart automatically.
+- **Automatic daily schedule** — systemd timers set the thermostat to a day profile (68/76 °F) at 6am and a night profile (67/75 °F) at 11pm.
 - **Built-in web interface** — a local Flask dashboard with a 24-hour temperature history graph and a color-coded HVAC action bar.
 - **Yocto-friendly** — standard `make install` with `DESTDIR`/`PREFIX` overrides for cross-packaging.
 
@@ -91,6 +92,10 @@ sudo systemctl enable --now thermostat-setup.service \
   thermostat-sensor.service thermostat-control.service \
   thermostat-gpio.service thermostat-mqtt.service \
   thermostat-web.service
+
+# Enable the 6am / 11pm setpoint schedule timers
+sudo systemctl enable --now thermostat-schedule-morning.timer \
+  thermostat-schedule-night.timer
 ```
 
 ### Using it

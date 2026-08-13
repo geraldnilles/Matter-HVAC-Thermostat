@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply 6am morning thermostat setpoints (heat 68 / cool 76)
+After=thermostat-setup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/share/thermostat/schedule.py --heat 68 --cool 76
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

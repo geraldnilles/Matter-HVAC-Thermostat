@@ -24,7 +24,8 @@ PYTHON_FILES = $(SRC_DIR)/utils.py \
                $(SRC_DIR)/gpio.py \
                $(SRC_DIR)/mqtt.py \
                $(SRC_DIR)/web.py \
-               $(SRC_DIR)/demo.py
+               $(SRC_DIR)/demo.py \
+               $(SRC_DIR)/schedule.py
 
 # Template files
 TEMPLATE_FILES = $(SRC_DIR)/templates/index.html
@@ -38,7 +39,11 @@ SYSTEMD_FILES = $(SYSTEMD_DIR)/thermostat-setup.service \
                 $(SYSTEMD_DIR)/thermostat-control.service \
                 $(SYSTEMD_DIR)/thermostat-gpio.service \
                 $(SYSTEMD_DIR)/thermostat-mqtt.service \
-                $(SYSTEMD_DIR)/thermostat-web.service
+                $(SYSTEMD_DIR)/thermostat-web.service \
+                $(SYSTEMD_DIR)/thermostat-schedule-morning.service \
+                $(SYSTEMD_DIR)/thermostat-schedule-night.service \
+                $(SYSTEMD_DIR)/thermostat-schedule-morning.timer \
+                $(SYSTEMD_DIR)/thermostat-schedule-night.timer
 
 .PHONY: all install clean
 
@@ -68,6 +73,7 @@ install-python: $(PYTHON_FILES)
 	install -m 755 $(SRC_DIR)/mqtt.py $(INSTALL_DIR)/
 	install -m 755 $(SRC_DIR)/web.py $(INSTALL_DIR)/
 	install -m 755 $(SRC_DIR)/demo.py $(INSTALL_DIR)/
+	install -m 755 $(SRC_DIR)/schedule.py $(INSTALL_DIR)/
 
 install-templates: $(TEMPLATE_FILES)
 	install -d $(INSTALL_TEMPLATE_DIR)
@@ -85,6 +91,10 @@ install-systemd: $(SYSTEMD_FILES)
 	install -m 644 $(SYSTEMD_DIR)/thermostat-gpio.service $(INSTALL_SYSTEMD_DIR)/
 	install -m 644 $(SYSTEMD_DIR)/thermostat-mqtt.service $(INSTALL_SYSTEMD_DIR)/
 	install -m 644 $(SYSTEMD_DIR)/thermostat-web.service $(INSTALL_SYSTEMD_DIR)/
+	install -m 644 $(SYSTEMD_DIR)/thermostat-schedule-morning.service $(INSTALL_SYSTEMD_DIR)/
+	install -m 644 $(SYSTEMD_DIR)/thermostat-schedule-night.service $(INSTALL_SYSTEMD_DIR)/
+	install -m 644 $(SYSTEMD_DIR)/thermostat-schedule-morning.timer $(INSTALL_SYSTEMD_DIR)/
+	install -m 644 $(SYSTEMD_DIR)/thermostat-schedule-night.timer $(INSTALL_SYSTEMD_DIR)/
 
 clean:
 	@echo "Nothing to clean"
