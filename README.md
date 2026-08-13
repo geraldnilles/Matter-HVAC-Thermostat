@@ -99,6 +99,17 @@ sudo systemctl enable --now thermostat-setup.service \
 - **Home Assistant** — the thermostat registers itself as a *Thermostat* climate device via MQTT discovery; no YAML needed.
 - **Matter (phone apps)** — install the Home Assistant Matter server integration (its MQTT broker/Mosquitto runs on the Home Assistant device, not the Pi), then add the thermostat's climate entity to your Matter bridge. It becomes available in Apple Home / Google Home on iOS and Android.
 
+## Local demo mode (try the UI without hardware)
+
+You can run the web dashboard locally with canned sensor data — no sensors, GPIOs, relays, or production install required — to see how the HTML, JavaScript, and Flash-free API feel:
+
+```bash
+cd /path/to/repo
+PYTHONPATH=src venv/bin/python src/web.py --demo --host 127.0.0.1 --port 5000
+```
+
+Then open **http://127.0.0.1:5000**. The demo generates a realistic 24-hour temperature history and HVAC action bar, and keeps feeding new samples so the page stays live. Mode, fan, and setpoint changes made in the UI are reflected in the simulation. Add `--data-dir /tmp/demo-state` to keep the simulated state in a specific directory, or drop `--demo` to run against the real `/run/thermostat` IPC as before.
+
 ## For developers
 
 The repository contains a detailed technical reference — service internals, IPC file formats, module map, GPIO pinout, MQTT topics, tuning constants, and packaging details:

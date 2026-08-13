@@ -5,8 +5,10 @@ Thermostat WebUI Daemon.
 Flask-based web interface for manual control and temperature history.
 """
 
+import argparse
 import signal
 import sys
+from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 
 from utils import (
@@ -27,6 +29,53 @@ from utils import (
 )
 
 app = Flask(__name__)
+
+# Demo-mode simulator, created lazily so production imports never touch demo.py.
+_demo_simulator = None
+
+# Attribute name -> relative file name inside an IPC directory. Used to
+# repoint utils' module-level file constants at an alternate data directory
+# (demo mode) or restore them to the production defaults.
+_IPC_FILE_NAMES = {
+    "CURRENT_TEMP_FILE": "current_temp",
+    "MIN_TEMP_FILE": "min_temp",
+    "MAX_TEMP_FILE": "max_temp",
+    "HISTORY_FILE": "history.json",
+    "SYSTEM_MODE_FILE": "system_mode",
+    "FAN_MODE_FILE": "fan_mode",
+    "SET_TEMP_COOL_FILE": "set_temp_cool",
+    "SET_TEMP_HEAT_FILE": "set_temp_heat",
+    "HVAC_ACTION_FILE": "hvac_action",
+}
+
+
+def redirect_ipc(data_dir):
+    """
+    Point every IPC file constant used by this module at ``data_dir``.
+
+    ``utils`` snapshots its file paths as module-level constants at import
+    time, so we must patch the constants on both ``utils`` and this module.
+    Returns ``None`` when ``data_dir`` is None (meaning "use production
+    defaults"), otherwise returns the ``pathlib.Path`` used.
+    """
+    import utils
+
+    if data_dir is None:
+        # Restore production defaults from utils.IPC_DIR.
+        base = utils.IPC_DIR
+        for attr, fname in _IPC_FILE_NAMES.items():
+            setattr(utils, attr, base / fname)
+        for attr in _IPC_FILE_NAMES:
+            setattr(sys.modules[__name__], attr, getattr(utils, attr))
+        return None
+
+    data_dir = Path(data_dir)
+    for attr, fname in _IPC_FILE_NAMES.items():
+        path = data_dir / fname
+        setattr(utils, attr, path)
+        setattr(sys.modules[__name__], attr, path)
+    return data_dir
+
 
 # Global flag for graceful shutdown
 running = True
@@ -146,17 +195,73 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 
-def main():
+def parse_args(argv=None):
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Thermostat WebUI daemon with an optional hardware-free demo mode."
+    )
+    parser.add_argument(
+        "--host", default="0.0.0.0",
+        help="Address to bind (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--port", type=int, default=5000,
+        help="Port to listen on (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--data-dir", default=None,
+        help="Directory for IPC state files (default: production "
+             "/run/thermostat).",
+    )
+    parser.add_argument(
+        "--demo", action="store_true",
+        help="Run with canned sensor data (no sensors, GPIOs, or relays). "
+             "When combined with --data-dir the simulated state is written "
+             "there; otherwise a fresh temporary directory is used.",
+    )
+    return parser.parse_args(argv)
+
+
+def start_demo(data_dir):
+    """Create and seed the canned-data simulator (local testing only)."""
+    import tempfile
+
+    from demo import DemoSimulator
+
+    if data_dir is None:
+        data_dir = tempfile.mkdtemp(prefix="thermostat-demo-")
+
+    global _demo_simulator
+    sim = DemoSimulator(data_dir=data_dir)
+    sim.seed_history()      # pre-fill the 24 h graph
+    sim.start()             # begin feeding live samples
+    _demo_simulator = sim   # keep a reference so it is not garbage-collected
+    return data_dir
+
+
+def main(argv=None):
     """Entry point."""
+    args = parse_args(argv)
+
     # Setup signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
-    
-    print("WebUI Daemon starting on http://0.0.0.0:5000")
-    
+
+    if args.demo:
+        # Local, hardware-free demo: repoint IPC at a private data directory
+        # and start the canned-data simulator.
+        data_dir = start_demo(args.data_dir)
+        redirect_ipc(data_dir)
+        print(f"Demo mode starting on http://{args.host}:{args.port} "
+              f"(state in {data_dir})")
+    else:
+        # Production mode: read/write the real IPC directory.
+        redirect_ipc(args.data_dir)
+        print(f"WebUI Daemon starting on http://{args.host}:{args.port}")
+
     try:
         # Run Flask app
-        app.run(host="0.0.0.0", port=5000, threaded=True)
+        app.run(host=args.host, port=args.port, threaded=True)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

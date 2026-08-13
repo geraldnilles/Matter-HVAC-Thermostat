@@ -23,7 +23,8 @@ PYTHON_FILES = $(SRC_DIR)/utils.py \
                $(SRC_DIR)/control.py \
                $(SRC_DIR)/gpio.py \
                $(SRC_DIR)/mqtt.py \
-               $(SRC_DIR)/web.py
+               $(SRC_DIR)/web.py \
+               $(SRC_DIR)/demo.py
 
 # Template files
 TEMPLATE_FILES = $(SRC_DIR)/templates/index.html
@@ -66,6 +67,7 @@ install-python: $(PYTHON_FILES)
 	install -m 755 $(SRC_DIR)/gpio.py $(INSTALL_DIR)/
 	install -m 755 $(SRC_DIR)/mqtt.py $(INSTALL_DIR)/
 	install -m 755 $(SRC_DIR)/web.py $(INSTALL_DIR)/
+	install -m 755 $(SRC_DIR)/demo.py $(INSTALL_DIR)/
 
 install-templates: $(TEMPLATE_FILES)
 	install -d $(INSTALL_TEMPLATE_DIR)

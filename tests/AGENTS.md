@@ -37,3 +37,4 @@ or via the project venv:
 |---|---|
 | `ipc_env.py` | Shared fixture: temp IPC dir, patched `utils.IPC_DIR`, control module (re)loading, file write helpers; **not** a test module |
 | `test_control.py` | State-machine coverage for `src/control.py` |
+| `test_demo.py` | Canned-data simulator (`src/demo.py`): ambient model, hysteresis/dwell/action selection, history seeding, and `web.py` CLI flag parsing |

@@ -52,6 +52,7 @@ Format rules (spec §5.1.1): scalar files are UTF-8 text with exactly one traili
 | Relay actuation (`gpioset`, libgpiod v1/v2 auto-detect), pin mapping, shutdown failsafe to OFF | `src/gpio.py` |
 | HA MQTT discovery payload, state publication, command subscription | `src/mqtt.py` |
 | Flask WebUI + REST API endpoints, history graph | `src/web.py`, `src/templates/index.html` |
+| Hardware-free canned-data simulator for the WebUI (local testing) | `src/demo.py` |
 | Default config: sensor MAC allowlist, initial modes/setpoints, MQTT broker | `config/defaults.json` |
 | systemd units and ordering | `systemd/*.service` |
 | Install/packaging rules (`DESTDIR`/`PREFIX`/`SYSCONFDIR`/`UNITDIR`) | `Makefile` |
@@ -140,6 +141,21 @@ MQTT broker config comes from the `mqtt` section of `defaults.json` (broker, por
 - `POST /api/setpoint` — `{"type": "cool"|"heat", "value": <float>}` (single-setpoint override; retained for compatibility)
 - `POST /api/setpoints` — `{"delta": <float>}` — adjusts both setpoints together (used by WebUI +/- buttons)
 
+### Local demo mode (no hardware)
+
+The WebUI can run in a fully local, hardware-free demo mode that feeds it canned sensor data. `src/demo.py` generates a realistic per-room temperature model, a populated 24 h history ring buffer, and a hysteresis/dwell-aware `hvac_action`, then keeps generating samples so the page auto-refresh feels live. Mode/fan/setpoint changes made in the UI are written to the demo data directory and picked up by the simulator on its next tick, so the dashboard is fully interactive.
+
+```bash
+cd /path/to/repo
+# isolated demo: fresh temp dir, localhost only
+PYTHONPATH=src venv/bin/python src/web.py --demo --host 127.0.0.1 --port 5000
+
+# keep the simulated state around in a chosen directory
+PYTHONPATH=src venv/bin/python src/web.py --demo --data-dir /tmp/demo-state
+```
+
+Flags supported by `src/web.py`: `--host`, `--port`, `--data-dir` (IPC/test data directory), and `--demo` (canned data, no sensors/GPIOs/relays). With no arguments the daemon behaves exactly as before: it reads/writes `/run/thermostat` on `0.0.0.0:5000`.
+
 ## Build, install & packaging
 
 - Dependencies: Python 3.10+, `flask`, `paho-mqtt`, `bleak` (see `requirements.txt`), plus `libgpiod2` for the `gpioset` command (driven via subprocess — **not** the python `gpiod` library; do not reintroduce it).
@@ -153,6 +169,7 @@ MQTT broker config comes from the `mqtt` section of `defaults.json` (broker, por
 - All tests are hardware- and GPIO-free: IPC state is redirected into a per-test temp dir and the wall clock is spoofed (`tests/ipc_env.py`), so `/run/thermostat` and real time are never used.
 - Run from the repo root: `venv/bin/python -m unittest discover -s tests -v` (or `python3 -m unittest discover -s tests -v`).
 - `src/control.py` exposes `ControlDaemon._step()` (one loop iteration) so its logic is testable without running the infinite `run()` loop.
+- `src/demo.py`'s temperature model and action selection are pure/injectable (fixed `now`), covered by `tests/test_demo.py` without Flask or hardware.
 
 ## Developer conventions
 
