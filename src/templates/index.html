@@ -118,6 +118,12 @@
             font-size: 24px;
             border-radius: 50%;
         }
+        .setpoint-btn:disabled {
+            background: #222222;
+            color: #666666;
+            border-color: #333333;
+            cursor: not-allowed;
+        }
         .status {
             text-align: center;
             padding: 10px;
@@ -254,7 +260,7 @@
         <div class="control-group">
             <label>Setpoints</label>
             <div class="setpoint-control">
-                <button class="setpoint-btn" onclick="adjustSetpoints(-1)">−</button>
+                <button class="setpoint-btn" id="setpoint-minus" onclick="adjustSetpoints(-1)">−</button>
                 <div class="setpoint-pair">
                     <div class="setpoint-value" id="heat-setpoint">--</div>
                     <div class="setpoint-label">Heat</div>
@@ -263,7 +269,7 @@
                     <div class="setpoint-value" id="cool-setpoint">--</div>
                     <div class="setpoint-label">Cool</div>
                 </div>
-                <button class="setpoint-btn" onclick="adjustSetpoints(1)">+</button>
+                <button class="setpoint-btn" id="setpoint-plus" onclick="adjustSetpoints(1)">+</button>
             </div>
         </div>
     </div>
@@ -333,10 +339,20 @@
             document.getElementById('fan-' + currentState.fan_mode)?.classList.add('active');
             
             // Setpoints
+            const cool = currentState.set_temp_cool;
+            const heat = currentState.set_temp_heat;
             document.getElementById('cool-setpoint').textContent = 
-                currentState.set_temp_cool ? currentState.set_temp_cool.toFixed(0) : '--';
+                cool ? cool.toFixed(0) : '--';
             document.getElementById('heat-setpoint').textContent = 
-                currentState.set_temp_heat ? currentState.set_temp_heat.toFixed(0) : '--';
+                heat ? heat.toFixed(0) : '--';
+
+            // Limit the +/- adjustment buttons:
+            // minus disabled when Cool setpoint is 73 or lower
+            // plus disabled when Heat setpoint is 71 or higher
+            const minusBtn = document.getElementById('setpoint-minus');
+            const plusBtn = document.getElementById('setpoint-plus');
+            minusBtn.disabled = (typeof cool === 'number' && cool <= 73);
+            plusBtn.disabled = (typeof heat === 'number' && heat >= 71);
             
             // Draw charts
             drawChart();
