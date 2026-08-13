@@ -83,18 +83,19 @@ TOPIC_CMD_MODE = f"{TOPIC_PREFIX}/mode/set"
 TOPIC_CMD_FAN = f"{TOPIC_PREFIX}/fan/set"
 TOPIC_CMD_COOL = f"{TOPIC_PREFIX}/cool/set"
 TOPIC_CMD_HEAT = f"{TOPIC_PREFIX}/heat/set"
+TOPIC_CMD_TEMP = f"{TOPIC_PREFIX}/temperature/set"
 
 POLL_INTERVAL = 5.0  # seconds
 
 
 def _to_hass_mode(mode: str) -> str:
-    """Convert an internal system mode to the Home Assistant MQTT term."""
-    return "heat_cool" if mode == "auto" else mode
+    """Pass internal system mode directly to Home Assistant."""
+    return mode
 
 
 def _from_hass_mode(mode: str) -> str:
-    """Convert a Home Assistant MQTT mode to the internal system term."""
-    return "auto" if mode == "heat_cool" else mode
+    """Pass Home Assistant MQTT mode directly to internal system term."""
+    return mode
 
 
 class MqttDaemon:
@@ -138,6 +139,7 @@ class MqttDaemon:
             self.client.subscribe(TOPIC_CMD_FAN)
             self.client.subscribe(TOPIC_CMD_COOL)
             self.client.subscribe(TOPIC_CMD_HEAT)
+            self.client.subscribe(TOPIC_CMD_TEMP)
             print("Subscribed to command topics")
             
             # Publish initial state
@@ -154,7 +156,7 @@ class MqttDaemon:
         
         try:
             if topic == TOPIC_CMD_MODE:
-                valid_modes = ["off", "cool", "heat", "heat_cool"]
+                valid_modes = ["off", "cool", "heat", "auto"]
                 if payload in valid_modes:
                     write_scalar(SYSTEM_MODE_FILE, _from_hass_mode(payload))
                 else:
@@ -180,6 +182,25 @@ class MqttDaemon:
                     write_scalar(SET_TEMP_HEAT_FILE, temp)
                 except ValueError:
                     print(f"Invalid heat setpoint: {payload}")
+            
+            elif topic == TOPIC_CMD_TEMP:
+                try:
+                    temp = round_degree(float(payload))
+                    mode = read_file(SYSTEM_MODE_FILE, default="off")
+                    if mode == "cool":
+                        write_scalar(SET_TEMP_COOL_FILE, temp)
+                    elif mode == "heat":
+                        write_scalar(SET_TEMP_HEAT_FILE, temp)
+                    elif mode == "auto":
+                        # When adjusting single temp while in auto mode, shift both setpoints
+                        cool = read_float(SET_TEMP_COOL_FILE, default=76.0)
+                        heat = read_float(SET_TEMP_HEAT_FILE, default=68.0)
+                        current_avg = (cool + heat) / 2.0
+                        delta = temp - current_avg
+                        write_scalar(SET_TEMP_COOL_FILE, round_degree(cool + delta))
+                        write_scalar(SET_TEMP_HEAT_FILE, round_degree(heat + delta))
+                except ValueError:
+                    print(f"Invalid target temperature payload: {payload}")
                     
             # Publish updated state immediately to MQTT broker
             self._publish_state()
@@ -207,11 +228,18 @@ class MqttDaemon:
             "mode_state_topic": TOPIC_STATE,
             "mode_state_template": "{{ value_json.system_mode }}",
             "mode_command_topic": TOPIC_CMD_MODE,
-            "modes": ["off", "cool", "heat", "heat_cool"],
+            "modes": ["off", "cool", "heat", "auto"],
             "fan_mode_state_topic": TOPIC_STATE,
             "fan_mode_state_template": "{{ value_json.fan_mode }}",
             "fan_mode_command_topic": TOPIC_CMD_FAN,
             "fan_modes": ["auto", "on"],
+
+            # --- Single Setpoint Topics (Enables TARGET_TEMPERATURE feature) ---
+            "temperature_state_topic": TOPIC_STATE,
+            "temperature_state_template": "{{ value_json.occupied_cooling_setpoint if value_json.system_mode == 'cool' else value_json.occupied_heating_setpoint }}",
+            "temperature_command_topic": TOPIC_CMD_TEMP,
+
+            # --- Range Setpoint Topics (Enables TARGET_TEMPERATURE_RANGE feature) ---
             "temperature_high_state_topic": TOPIC_STATE,
             "temperature_high_state_template": "{{ value_json.occupied_cooling_setpoint }}",
             "temperature_high_command_topic": TOPIC_CMD_COOL,
