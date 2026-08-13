@@ -162,18 +162,19 @@ The system is divided into five primary daemons managed by `systemd`.
 * **Configuration:** Broker host, port, and optional username/password are loaded from the `mqtt` object in `/etc/thermostat/defaults.json`. If `username` is empty, the daemon connects without authentication.
 * **Broker Location:** The broker is **not** hosted on the Pi — the thermostat connects to the MQTT broker that runs on the separate Home Assistant device (e.g., the Mosquitto broker add-on/`mosquitto` package in Home Assistant OS). No local MQTT broker service is installed or started by this project.
 * **Protocol:** MQTT Climate entity.
+* **Mode Name Mapping:** The internal `auto` mode (used everywhere in IPC, WebUI, and config) is published to Home Assistant as `heat_cool` (Home Assistant's term for a climate device that can heat and cool simultaneously). Incoming `heat_cool` commands are translated back to `auto` before being written to IPC. No other mode names are affected.
 * **Topic Structure:**
     * **State Publication:** `thermostat/state` (JSON with temperature, mode, setpoints, action)
     * **Availability:** `thermostat/availability` (`online`/`offline`)
     * **HA Discovery:** `homeassistant/climate/thermostat/config` (Retained JSON payload)
     * **Command Topics (Inbound):**
-        * `thermostat/mode/set` - Values: `off`, `cool`, `heat`, `auto`
+        * `thermostat/mode/set` - Values: `off`, `cool`, `heat`, `heat_cool`
         * `thermostat/fan/set` - Values: `auto`, `on`
         * `thermostat/cool/set` - Float value for cooling setpoint
         * `thermostat/heat/set` - Float value for heating setpoint
 * **Matter Compatible Attributes:** Maps to:
   * `local_temperature`: Current average temperature
-  * `system_mode`: Current mode (off/cool/heat/auto)
+  * `system_mode`: Current mode (off/cool/heat/heat_cool)
   * `fan_mode`: Current fan mode (auto/on)
   * `occupied_cooling_setpoint`: Cooling setpoint
   * `occupied_heating_setpoint`: Heating setpoint

@@ -87,6 +87,16 @@ TOPIC_CMD_HEAT = f"{TOPIC_PREFIX}/heat/set"
 POLL_INTERVAL = 5.0  # seconds
 
 
+def _to_hass_mode(mode: str) -> str:
+    """Convert an internal system mode to the Home Assistant MQTT term."""
+    return "heat_cool" if mode == "auto" else mode
+
+
+def _from_hass_mode(mode: str) -> str:
+    """Convert a Home Assistant MQTT mode to the internal system term."""
+    return "auto" if mode == "heat_cool" else mode
+
+
 class MqttDaemon:
     """MQTT client daemon for Home Assistant integration."""
     
@@ -144,9 +154,9 @@ class MqttDaemon:
         
         try:
             if topic == TOPIC_CMD_MODE:
-                valid_modes = ["off", "cool", "heat", "auto"]
+                valid_modes = ["off", "cool", "heat", "heat_cool"]
                 if payload in valid_modes:
-                    write_scalar(SYSTEM_MODE_FILE, payload)
+                    write_scalar(SYSTEM_MODE_FILE, _from_hass_mode(payload))
                 else:
                     print(f"Invalid mode: {payload}")
             
@@ -197,7 +207,7 @@ class MqttDaemon:
             "mode_state_topic": TOPIC_STATE,
             "mode_state_template": "{{ value_json.system_mode }}",
             "mode_command_topic": TOPIC_CMD_MODE,
-            "modes": ["off", "cool", "heat", "auto"],
+            "modes": ["off", "cool", "heat", "heat_cool"],
             "fan_mode_state_topic": TOPIC_STATE,
             "fan_mode_state_template": "{{ value_json.fan_mode }}",
             "fan_mode_command_topic": TOPIC_CMD_FAN,
@@ -229,7 +239,7 @@ class MqttDaemon:
         # Build state payload (Matter-compatible attributes)
         state = {
             "local_temperature": current,
-            "system_mode": system_mode,
+            "system_mode": _to_hass_mode(system_mode),
             "fan_mode": fan_mode,
             "occupied_cooling_setpoint": set_cool,
             "occupied_heating_setpoint": set_heat,
