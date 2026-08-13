@@ -211,6 +211,8 @@ class MqttDaemon:
             "temperature_unit": "F",
             "precision": 0.1,
             "temp_step": 1.0,
+            "min_temp": 60,
+            "max_temp": 80,
         }
         self.client.publish(TOPIC_DISCOVERY, json.dumps(discovery_payload), retain=True)
         print(f"Published Home Assistant discovery config to {TOPIC_DISCOVERY}")
