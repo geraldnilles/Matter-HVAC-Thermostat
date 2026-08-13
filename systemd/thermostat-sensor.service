@@ -1,6 +1,6 @@
 [Unit]
 Description=Thermostat Sensor Daemon (BLE Temperature Sensors)
-After=thermostat-setup.service bluetooth.target
+After=thermostat-setup.service bluetooth.target time-sync.target
 Wants=bluetooth.target
 
 [Service]

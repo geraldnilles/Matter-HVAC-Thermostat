@@ -149,7 +149,7 @@ class SensorDaemon:
         if temp is None:
             return
         
-        now = time.time()
+        now = time.monotonic()
         self.sensors[mac].add_reading(now, temp)
         print(f"Sensor {self.allowlist[mac]} ({mac}): {temp:.2f}°F")
     
@@ -163,9 +163,9 @@ class SensorDaemon:
                     valid.append((mac, avg))
         return valid
     
-    def _update_history(self, now: float, valid_sensors: list[tuple[str, float]]):
+    def _update_history(self, mono_now: float, valid_sensors: list[tuple[str, float]]):
         """Update 24-hour history buffer if interval has passed."""
-        if now - self.last_history_update < HISTORY_INTERVAL:
+        if mono_now - self.last_history_update < HISTORY_INTERVAL:
             return
         
         if not valid_sensors:
@@ -190,7 +190,7 @@ class SensorDaemon:
         hvac_action = read_file(HVAC_ACTION_FILE)
 
         entry = {
-            "t": int(now),  # Unix epoch timestamp
+            "t": int(time.time()),  # Unix epoch timestamp for charting
             "avg": round(avg_temp, 2),
             "sensors": sensor_readings
         }
@@ -202,7 +202,7 @@ class SensorDaemon:
             entry["hvac_action"] = hvac_action
 
         self.history.append(entry)
-        self.last_history_update = now
+        self.last_history_update = mono_now
         print(f"History updated: avg={avg_temp:.2f}°F, sensors={len(valid_sensors)}")
     
     def _write_ipc_files(self, now: float, valid_sensors: list[tuple[str, float]]):
@@ -251,17 +251,17 @@ class SensorDaemon:
             while True:
                 await asyncio.sleep(5)  # Process loop every 5 seconds
                 
-                now = time.time()
-                valid_sensors = self._get_valid_sensors(now)
+                mono_now = time.monotonic()
+                valid_sensors = self._get_valid_sensors(mono_now)
                 
                 # Update outputs
-                self._update_history(now, valid_sensors)
-                self._write_ipc_files(now, valid_sensors)
+                self._update_history(mono_now, valid_sensors)
+                self._write_ipc_files(mono_now, valid_sensors)
                 self._write_history_file()
                 
                 # Log status
                 stale_count = sum(
-                    1 for s in self.sensors.values() if not s.is_valid(now)
+                    1 for s in self.sensors.values() if not s.is_valid(mono_now)
                 )
                 if stale_count > 0:
                     print(f"Status: {len(valid_sensors)} valid, {stale_count} stale sensors")

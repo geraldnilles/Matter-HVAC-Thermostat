@@ -81,7 +81,7 @@ The Raspberry Pi directly drives relays for the HVAC components.
 Services start in the following order, managed by systemd `After=` directives:
 
 1. **thermostat-setup** - Runs first after filesystems are available
-2. **thermostat-sensor** - Starts after setup and bluetooth target
+2. **thermostat-sensor** - Starts after setup, bluetooth target, and time sync target (`After=time-sync.target`)
 3. **thermostat-control** - Starts after setup and sensor (requires temperature data)
 4. **thermostat-gpio** - Starts after setup and control (60-second delay via `ExecStartPre`)
 5. **thermostat-mqtt** / **thermostat-web** - Start after setup and control (can run concurrently).

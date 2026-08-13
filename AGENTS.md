@@ -15,7 +15,7 @@ A Matter-compatible HVAC thermostat running on a Raspberry Pi. A relay HAT provi
 | Order | Service | Role | Unit |
 |---|---|---|---|
 | 1 | `thermostat-setup` | One-shot bootstrap; seeds `/run/thermostat/` from `/etc/thermostat/defaults.json` | `systemd/thermostat-setup.service` |
-| 2 | `thermostat-sensor` | BLE scan + aggregation; writes temps + 24 h history | `systemd/thermostat-sensor.service` |
+| 2 | `thermostat-sensor` | BLE scan + aggregation; writes temps + 24 h history; waits for time-sync.target | `systemd/thermostat-sensor.service` |
 | 3 | `thermostat-control` | The "brain"; thermostat logic, hysteresis, safety timers; writes `hvac_action` | `systemd/thermostat-control.service` |
 | 4 | `thermostat-gpio` | The "muscle"; reads `hvac_action`, drives relays via `gpioset`; extra 60 s boot delay (`ExecStartPre`) | `systemd/thermostat-gpio.service` |
 | 5 | `thermostat-mqtt` | Home Assistant bridge; MQTT Climate entity with Matter-aligned attributes | `systemd/thermostat-mqtt.service` |
