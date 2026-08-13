@@ -4,6 +4,7 @@ After=thermostat-setup.service bluetooth.target
 Wants=bluetooth.target
 
 [Service]
+Environment=PYTHONUNBUFFERED=1
 Type=simple
 ExecStart=/usr/share/thermostat/sensor.py
 Restart=always

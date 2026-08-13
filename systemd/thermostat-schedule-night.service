@@ -3,6 +3,7 @@ Description=Apply 11pm night thermostat setpoints (heat 67 / cool 75)
 After=thermostat-setup.service
 
 [Service]
+Environment=PYTHONUNBUFFERED=1
 Type=oneshot
 ExecStart=/usr/share/thermostat/schedule.py --heat 67 --cool 75
 StandardOutput=journal

@@ -3,6 +3,7 @@ Description=Thermostat MQTT Daemon (Home Assistant Integration)
 After=thermostat-setup.service thermostat-control.service
 
 [Service]
+Environment=PYTHONUNBUFFERED=1
 Type=simple
 ExecStart=/usr/share/thermostat/mqtt.py
 Restart=always

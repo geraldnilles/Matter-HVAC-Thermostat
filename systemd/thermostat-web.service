@@ -3,6 +3,7 @@ Description=Thermostat WebUI Daemon (Flask Web Interface)
 After=thermostat-setup.service thermostat-control.service
 
 [Service]
+Environment=PYTHONUNBUFFERED=1
 Type=simple
 ExecStart=/usr/share/thermostat/web.py
 Restart=always

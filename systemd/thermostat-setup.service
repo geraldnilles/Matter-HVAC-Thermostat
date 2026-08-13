@@ -5,6 +5,7 @@ Before=thermostat-sensor.service thermostat-control.service thermostat-gpio.serv
 After=local-fs.target
 
 [Service]
+Environment=PYTHONUNBUFFERED=1
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/share/thermostat/setup.py
