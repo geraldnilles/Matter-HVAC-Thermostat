@@ -192,6 +192,7 @@ The system is divided into five primary daemons managed by `systemd`.
     * Visualizes 24-hour temperature history graph (reads `history.json`). Plots a line for each room from the per-sensor readings, plus a bold average line, and dashed heating/cooling setpoint reference lines; a color-coded legend identifies each line.
     * Renders a horizontal HVAC action bar directly below the temperature history. Each bar segment is colored by the action at that time (heating, cooling, fan, idle), and the bar uses the same horizontal time scale as the temperature graph so action segments line up with the temperature curve.
     * Auto-refreshes state every 30 seconds via JavaScript.
+    * Displays a "Current Room Temperatures" table at the bottom of the dashboard, listing each room and its live temperature read from the most recent `history.json` sample's `sensors` map (the newest sample that contains per-room readings).
 * **REST API Endpoints:**
     * `GET /` - HTML interface
     * `GET /api/state` - JSON with current state (temps, modes, setpoints, action)
