@@ -210,10 +210,12 @@ class MqttDaemon:
             "mode_state_template": "{{ value_json.system_mode }}",
             "mode_command_topic": TOPIC_CMD_MODE,
             "modes": ["off", "cool", "heat", "heat_cool"],
-            "fan_mode_state_topic": TOPIC_STATE,
-            "fan_mode_state_template": "{{ value_json.fan_mode }}",
-            "fan_mode_command_topic": TOPIC_CMD_FAN,
-            "fan_modes": ["auto", "on"],
+            # Deliberately omit the fan_mode_* discovery keys. Home Assistant
+            # infers its FAN_MODE feature from those keys, and
+            # home-assistant-matter-hub then classifies the entity as a
+            # RoomAirConditioner (Matter device type 0x0072) instead of a
+            # plain Thermostat (0x002A). The fan relay stays controllable via
+            # the WebUI and the still-subscribed thermostat/fan/set MQTT topic.
             "temperature_high_state_topic": TOPIC_STATE,
             "temperature_high_state_template": "{{ value_json.occupied_cooling_setpoint }}",
             "temperature_high_command_topic": TOPIC_CMD_COOL,

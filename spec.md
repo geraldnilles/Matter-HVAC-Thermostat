@@ -182,6 +182,7 @@ The system is divided into five primary daemons managed by `systemd`.
   * `occupied_cooling_setpoint`: Cooling setpoint
   * `occupied_heating_setpoint`: Heating setpoint
   * `thermostat_running_state`: Current HVAC action (idle/heating/cooling/fan)
+* **Matter Device Type (fan mode not advertised):** The HA discovery payload intentionally omits all `fan_mode_*` discovery keys (`fan_mode_state_topic`, `fan_mode_command_topic`, `fan_modes`). Home Assistant infers its `FAN_MODE` supported feature from those keys, and `home-assistant-matter-hub` then classifies the entity as a Matter **Room Air Conditioner** (device type `0x0072`) rather than a plain **Thermostat** (`0x002A`). Omitting them keeps the Thermostat classification while fan control remains available through the WebUI and the control/GPIO daemons via the `fan_mode` IPC file; the `thermostat/fan/set` command topic stays subscribed for compatibility. Note: the `fan_mode` value is still included in the `thermostat/state` payload for other MQTT consumers.
 * **Availability:** Publishes `online`/`offline` status to `thermostat/availability` with retain flag.
 * **Update Interval:** Publishes state every 5 seconds.
 * **Output:** Writes to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat`.

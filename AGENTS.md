@@ -136,6 +136,8 @@ State payload uses **Matter-aligned attribute names** so HA maps them to the Mat
 
 MQTT broker config comes from the `mqtt` section of `defaults.json` (broker, port, username/password); falls back to `homeassistant.lan:1883`. On connect: publishes availability, discovery, initial state, subscribes commands. On shutdown: publishes `offline` retained.
 
+> **Do NOT add `fan_mode_*` keys back to the HA discovery payload.** They make Home Assistant set the `FAN_MODE` supported feature, which causes `home-assistant-matter-hub` to classify the device as a Matter **Room Air Conditioner** (`0x0072`) instead of a plain **Thermostat** (`0x002A`). The `fan_mode` value is still published in `thermostat/state`, and `thermostat/fan/set` remains subscribed, so fan control continues working outside of HA discovery. See `spec.md` §4.4.
+
 ## WebUI REST API (`src/web.py`)
 
 - `GET /` — HTML dashboard (auto-refresh 30 s) with live temp, mode/setpoint controls, 24 h history graph (room lines + bold average + dashed heat/cool setpoint lines) plus a horizontal HVAC action bar below it (color-coded heating/cooling/fan/idle segments on the same time scale) and a "Current Room Temperatures" table at the bottom (each room's live temp from the latest `history.json` `sensors` map); setpoint controls use a single +/- button pair that adjusts heat and cool setpoints simultaneously
