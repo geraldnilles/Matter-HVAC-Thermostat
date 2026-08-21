@@ -74,7 +74,7 @@ The Raspberry Pi directly drives relays for the HVAC components.
 }
 ```
 * The `mqtt` object stores the MQTT broker host, port, and optional authentication credentials. The broker runs on the **separate Home Assistant device** — the thermostat does **not** run a local MQTT broker (no mosquitto on the Pi). Leave `username` and `password` as empty strings (`""`) for brokers that do not require authentication.
-* **Boot Process:** On system startup, before any daemons launch, a one-shot initialization service (`thermostat-setup`) copies values from `defaults.json` to the corresponding files in `/run/thermostat/` to seed the system state.
+* **Boot Process:** On system startup, before any daemons launch, a one-shot initialization service (`thermostat-setup`) copies values from `defaults.json` to the corresponding files in `/run/thermostat/` to seed the system state. Files that already exist are left untouched, so an external backup/restore service may populate `/run/thermostat/` either before or after `thermostat-setup` runs without its values being overwritten.
 
 ### 3.4 Service Dependencies
 

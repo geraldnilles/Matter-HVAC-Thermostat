@@ -47,10 +47,18 @@ def initialize_ipc_files(config: dict) -> None:
     }
     
     for key, filepath in mappings.items():
-        if key in config:
-            # Always write on setup - this is the intended behavior for boot init
-            write_scalar(filepath, config[key])
-            print(f"Initialized {filepath}: {config[key]}")
+        if key not in config:
+            continue
+        if filepath.exists():
+            # Pre-existing state wins: never clobber values already present in
+            # the IPC directory. This preserves state across service restarts
+            # and lets an external backup/restore service seed /run/thermostat/
+            # either before or after this service runs.
+            print(f"Skipped {filepath}: already exists, preserving existing value")
+            continue
+        # First boot (or freshly wiped tmpfs): seed from defaults.json
+        write_scalar(filepath, config[key])
+        print(f"Initialized {filepath}: {config[key]}")
     
     print("Thermostat IPC initialization complete.")
 

@@ -39,3 +39,4 @@ or via the project venv:
 | `test_control.py` | State-machine coverage for `src/control.py` |
 | `test_demo.py` | Canned-data simulator (`src/demo.py`): ambient model, hysteresis/dwell/action selection, history seeding, and `web.py` CLI flag parsing |
 | `test_schedule.py` | Setpoint scheduler (`src/schedule.py`): argument parsing, whole-degree snapping, and atomic setpoint writes into a temp IPC dir |
+| `test_setup.py` | Boot-time IPC seeding (`src/setup.py`): fresh-dir seeding from defaults, "existing files win" preservation contract, partial backfill, idempotent re-runs |
