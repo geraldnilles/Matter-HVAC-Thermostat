@@ -212,6 +212,12 @@
             color: #9e9e9e !important;
             font-size: 14px !important;
         }
+        .cost-note {
+            text-align: center;
+            color: #9e9e9e;
+            font-size: 12px;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -282,6 +288,21 @@
         <div class="legend" id="chart-action-legend"></div>
         <canvas id="chart-action"></canvas>
     </div>
+
+    <div class="card">
+        <label>Estimated Energy Cost</label>
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value" id="cost-day">--</div>
+                <div class="stat-label">Last 24 Hours</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="cost-month">--</div>
+                <div class="stat-label">Projected Monthly</div>
+            </div>
+        </div>
+        <div class="cost-note">Assumes $0.20/kWh &middot; monthly = last 24 h &times; 30</div>
+    </div>
     
     <div class="card">
         <label>Current Room Temperatures</label>
@@ -305,6 +326,17 @@
     <script>
         let currentState = {};
         const BACKGROUND = '#1e1e1e';
+
+        // Energy-cost model: utility rate and per-action power draw (W).
+        const COST_PER_KWH = 0.20;
+        const COST_ACTION_WATTS = {
+            idle: 0,
+            fan: 400,
+            heating: 500,
+            cooling: 4000
+        };
+        const COST_WINDOW_SEC = 24 * 60 * 60;   // lookback window
+        const COST_MONTH_DAYS = 30;             // daily cost -> monthly projection
         
         async function loadState() {
             try {
@@ -358,6 +390,7 @@
             drawChart();
             drawActionBar();
             updateRoomTable();
+            updateCost();
         }
         
         async function setMode(mode) {
@@ -678,6 +711,43 @@
             addLegendItem('Idle', ACTION_COLORS.idle);
         }
         
+        function updateCost() {
+            const elDay = document.getElementById('cost-day');
+            const elMonth = document.getElementById('cost-month');
+            const history = currentState.history || [];
+
+            if (history.length < 2) {
+                elDay.textContent = '--';
+                elMonth.textContent = '--';
+                return;
+            }
+
+            // Integrate power over time. Each sample's hvac_action applies
+            // from its timestamp until the next sample (same convention as
+            // the action bar). Intervals are clipped to the last 24 h.
+            const nowSec = Date.now() / 1000;
+            const windowStart = nowSec - COST_WINDOW_SEC;
+            let wattSeconds = 0;
+            for (let i = 0; i < history.length - 1; i++) {
+                const t0 = history[i].t;
+                const t1 = history[i + 1].t;
+                if (!Number.isFinite(t0) || !Number.isFinite(t1)) continue;
+                const a = Math.max(t0, windowStart);
+                const b = Math.min(t1, nowSec);
+                if (b <= a) continue;
+                const watts = COST_ACTION_WATTS[history[i].hvac_action]
+                    ?? COST_ACTION_WATTS.idle;
+                wattSeconds += watts * (b - a);
+            }
+
+            // W*s over the window -> Wh -> kWh -> dollars
+            const kwh = wattSeconds / 3600 / 1000;
+            const costDay = kwh * COST_PER_KWH;
+
+            elDay.textContent = '$' + costDay.toFixed(2);
+            elMonth.textContent = '$' + (costDay * COST_MONTH_DAYS).toFixed(2);
+        }
+
         function updateRoomTable() {
             const body = document.getElementById('room-table-body');
             const history = currentState.history || [];

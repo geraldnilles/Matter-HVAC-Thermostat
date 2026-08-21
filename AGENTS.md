@@ -140,7 +140,7 @@ MQTT broker config comes from the `mqtt` section of `defaults.json` (broker, por
 
 ## WebUI REST API (`src/web.py`)
 
-- `GET /` — HTML dashboard (auto-refresh 30 s) with live temp, mode/setpoint controls, 24 h history graph (room lines + bold average + dashed heat/cool setpoint lines) plus a horizontal HVAC action bar below it (color-coded heating/cooling/fan/idle segments on the same time scale) and a "Current Room Temperatures" table at the bottom (each room's live temp from the latest `history.json` `sensors` map); setpoint controls use a single +/- button pair that adjusts heat and cool setpoints simultaneously
+- `GET /` — HTML dashboard (auto-refresh 30 s) with live temp, mode/setpoint controls, 24 h history graph (room lines + bold average + dashed heat/cool setpoint lines) plus a horizontal HVAC action bar below it (color-coded heating/cooling/fan/idle segments on the same time scale), an "Estimated Energy Cost" card (client-side integration of per-action power draw over the last 24 h at $0.20/kWh, with a ×30 monthly projection) and a "Current Room Temperatures" table at the bottom (each room's live temp from the latest `history.json` `sensors` map); setpoint controls use a single +/- button pair that adjusts heat and cool setpoints simultaneously
 - `GET /api/state` — full state as JSON (includes `history`)
 - `POST /api/mode` — `{"mode": "off"|"cool"|"heat"|"auto"}`
 - `POST /api/fan` — `{"fan": "auto"|"on"}`
