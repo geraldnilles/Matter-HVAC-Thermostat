@@ -2,8 +2,6 @@
   "name": "Thermostat",
   "short_name": "Thermostat",
   "description": "Matter HVAC Thermostat Control",
-  "start_url": "./",
-  "scope": "./",
   "display": "standalone",
   "display_override": ["standalone", "window-controls-overlay"],
   "background_color": "#121212",
