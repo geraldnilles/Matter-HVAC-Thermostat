@@ -13,6 +13,7 @@ SYSTEMD_DIR = systemd
 
 INSTALL_DIR = $(DESTDIR)$(PREFIX)/share/thermostat
 INSTALL_TEMPLATE_DIR = $(INSTALL_DIR)/templates
+INSTALL_STATIC_DIR = $(INSTALL_DIR)/static
 INSTALL_CONFIG_DIR = $(DESTDIR)$(SYSCONFDIR)/thermostat
 INSTALL_SYSTEMD_DIR = $(DESTDIR)$(UNITDIR)
 
@@ -29,6 +30,18 @@ PYTHON_FILES = $(SRC_DIR)/utils.py \
 
 # Template files
 TEMPLATE_FILES = $(SRC_DIR)/templates/index.html
+
+# Static asset files (icons, manifest, service worker)
+STATIC_FILES = $(SRC_DIR)/static/favicon.svg \
+               $(SRC_DIR)/static/favicon.ico \
+               $(SRC_DIR)/static/icon-16.png \
+               $(SRC_DIR)/static/icon-32.png \
+               $(SRC_DIR)/static/icon-180.png \
+               $(SRC_DIR)/static/icon-192.png \
+               $(SRC_DIR)/static/icon-512.png \
+               $(SRC_DIR)/static/apple-touch-icon.png \
+               $(SRC_DIR)/static/manifest.webmanifest \
+               $(SRC_DIR)/static/sw.js
 
 # Config files
 CONFIG_FILES = $(CONFIG_DIR)/defaults.json
@@ -50,12 +63,13 @@ SYSTEMD_FILES = $(SYSTEMD_DIR)/thermostat-setup.service \
 all:
 	@echo "Run 'make install' to install the thermostat system"
 
-install: install-dirs install-python install-templates install-config install-systemd
+install: install-dirs install-python install-templates install-static install-config install-systemd
 	@echo "Installation complete"
 
 install-dirs:
 	install -d $(INSTALL_DIR)
 	install -d $(INSTALL_TEMPLATE_DIR)
+	install -d $(INSTALL_STATIC_DIR)
 	install -d $(INSTALL_CONFIG_DIR)
 	install -d $(INSTALL_SYSTEMD_DIR)
 
@@ -78,6 +92,19 @@ install-python: $(PYTHON_FILES)
 install-templates: $(TEMPLATE_FILES)
 	install -d $(INSTALL_TEMPLATE_DIR)
 	install -m 644 $(SRC_DIR)/templates/index.html $(INSTALL_TEMPLATE_DIR)/
+
+install-static: $(STATIC_FILES)
+	install -d $(INSTALL_STATIC_DIR)
+	install -m 644 $(SRC_DIR)/static/favicon.svg $(INSTALL_STATIC_DIR)/
+	install -m 644 $(SRC_DIR)/static/favicon.ico $(INSTALL_STATIC_DIR)/
+	install -m 644 $(SRC_DIR)/static/icon-16.png $(INSTALL_STATIC_DIR)/
+	install -m 644 $(SRC_DIR)/static/icon-32.png $(INSTALL_STATIC_DIR)/
+	install -m 644 $(SRC_DIR)/static/icon-180.png $(INSTALL_STATIC_DIR)/
+	install -m 644 $(SRC_DIR)/static/icon-192.png $(INSTALL_STATIC_DIR)/
+	install -m 644 $(SRC_DIR)/static/icon-512.png $(INSTALL_STATIC_DIR)/
+	install -m 644 $(SRC_DIR)/static/apple-touch-icon.png $(INSTALL_STATIC_DIR)/
+	install -m 644 $(SRC_DIR)/static/manifest.webmanifest $(INSTALL_STATIC_DIR)/
+	install -m 644 $(SRC_DIR)/static/sw.js $(INSTALL_STATIC_DIR)/
 
 install-config: $(CONFIG_FILES)
 	install -d $(INSTALL_CONFIG_DIR)

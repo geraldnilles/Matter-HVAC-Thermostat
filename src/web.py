@@ -9,7 +9,7 @@ import argparse
 import signal
 import sys
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 
 from utils import (
     round_degree,
@@ -101,6 +101,39 @@ def index():
     """Render main thermostat interface."""
     state = read_state()
     return render_template("index.html", state=state)
+
+
+@app.route("/sw.js")
+def sw():
+    """Serve service worker from root scope so it controls '/'."""
+    resp = send_from_directory(app.static_folder, "sw.js", mimetype="application/javascript")
+    # Allow the SW to control the entire origin even though file lives under /static/.
+    resp.headers["Service-Worker-Allowed"] = "/"
+    # Ensure fresh fetch (SW updates frequently during dev)
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.route("/manifest.webmanifest")
+def manifest():
+    return send_from_directory(
+        app.static_folder, "manifest.webmanifest", mimetype="application/manifest+json"
+    )
+
+
+@app.route("/favicon.ico")
+def favicon_ico():
+    return send_from_directory(app.static_folder, "favicon.ico", mimetype="image/vnd.microsoft.icon")
+
+
+@app.route("/favicon.svg")
+def favicon_svg():
+    return send_from_directory(app.static_folder, "favicon.svg", mimetype="image/svg+xml")
+
+
+@app.route("/apple-touch-icon.png")
+def apple_touch():
+    return send_from_directory(app.static_folder, "apple-touch-icon.png", mimetype="image/png")
 
 
 @app.route("/api/state")
