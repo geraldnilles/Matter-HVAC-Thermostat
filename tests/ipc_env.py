@@ -143,7 +143,8 @@ class ControlEnv:
     # signal handlers are installed and the fake clock fully controls time.
     # ------------------------------------------------------------------ #
     def make_daemon(self, current_action=None, startup_complete=None,
-                    start_time=None, last_state_change=None):
+                    start_time=None, last_state_change=None,
+                    prev_cool=None, prev_heat=None):
         daemon = object.__new__(self.control.ControlDaemon)
         daemon.current_action = (
             current_action if current_action is not None
@@ -156,6 +157,10 @@ class ControlEnv:
         daemon.last_state_change = (
             last_state_change if last_state_change is not None else self.clock()
         )
+        # Anchor tracking for setpoint separation (bypassed __init__).
+        # None means "no prior observation" -> symmetric fallback.
+        daemon._prev_cool = prev_cool
+        daemon._prev_heat = prev_heat
         return daemon
 
     def restore(self):

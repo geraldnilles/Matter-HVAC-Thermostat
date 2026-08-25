@@ -64,6 +64,11 @@ class ControlDaemon:
         self.last_state_change = 0
         self.startup_complete = False
         self.start_time = time.time()
+        # Remember last enforced setpoints so we can anchor the
+        # changed setpoint when the 8°F gap is violated (see
+        # _enforce_setpoint_separation).
+        self._prev_cool: float | None = None
+        self._prev_heat: float | None = None
         
         # Setup signal handlers
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -99,21 +104,41 @@ class ControlDaemon:
         previously-corrupted fractional IPC values and keeps the effective
         setpoints round.
 
-        If setpoints are still too close, expand them symmetrically around
-        their average and snap the expanded setpoints to the nearest whole
-        degree, so the effective setpoints remain whole numbers. For
-        simplicity, we always ensure cool >= heat + 8.
+        If the gap is violated, the setpoint that was *just changed* is
+        treated as the anchor and the opposite setpoint is moved to
+        restore the 8°F separation (e.g. heat=69 cool=77 -> cool
+        lowered to 76 -> heat moves to 68, not cool bouncing back to
+        77).  Which setpoint changed is detected by comparing the
+        snapped inputs to the previously-enforced values remembered on
+        the daemon instance.  If both changed, neither changed, or this
+        is the first observation, fall back to the symmetric
+        midpoint expansion for a deterministic result.
+        Always ensure cool >= heat + 8 and keep values whole degrees.
         """
         # Snap inputs to nearest whole degree so stale/corrupt IPC values self-heal
         cool_temp = round_degree(cool_temp)
         heat_temp = round_degree(heat_temp)
 
         if cool_temp < heat_temp + MIN_SETPOINT_GAP:
-            # Gap too small - expand it symmetrically around midpoint,
-            # then snap expanded values to whole degrees
-            midpoint = (cool_temp + heat_temp) / 2
-            cool_temp = round_degree(midpoint + MIN_SETPOINT_GAP / 2)
-            heat_temp = round_degree(midpoint - MIN_SETPOINT_GAP / 2)
+            prev_cool = getattr(self, "_prev_cool", None)
+            prev_heat = getattr(self, "_prev_heat", None)
+            cool_changed = prev_cool is not None and cool_temp != prev_cool
+            heat_changed = prev_heat is not None and heat_temp != prev_heat
+            if cool_changed and not heat_changed:
+                # Anchor cool, move heat down
+                heat_temp = round_degree(cool_temp - MIN_SETPOINT_GAP)
+            elif heat_changed and not cool_changed:
+                # Anchor heat, move cool up
+                cool_temp = round_degree(heat_temp + MIN_SETPOINT_GAP)
+            else:
+                # Both changed / neither changed / first run -> symmetric
+                midpoint = (cool_temp + heat_temp) / 2
+                cool_temp = round_degree(midpoint + MIN_SETPOINT_GAP / 2)
+                heat_temp = round_degree(midpoint - MIN_SETPOINT_GAP / 2)
+        # Remember enforced values for next anchor decision (even when
+        # gap was already satisfied, so single-step changes are detected).
+        self._prev_cool = cool_temp
+        self._prev_heat = heat_temp
         return cool_temp, heat_temp
     
     def _read_inputs(self) -> dict:
