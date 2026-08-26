@@ -212,7 +212,7 @@ class MqttDaemon:
             "modes": ["off", "cool", "heat", "heat_cool"],
             # Deliberately omit the fan_mode_* discovery keys. Home Assistant
             # infers its FAN_MODE feature from those keys, and
-            # home-assistant-matter-hub then classifies the entity as a
+            # [home-assistant-matter-hub](https://github.com/RiDDiX/home-assistant-matter-hub/) then classifies the entity as a
             # RoomAirConditioner (Matter device type 0x0072) instead of a
             # plain Thermostat (0x002A). The fan relay stays controllable via
             # the WebUI and the still-subscribed thermostat/fan/set MQTT topic.

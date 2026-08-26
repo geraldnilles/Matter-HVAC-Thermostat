@@ -102,7 +102,7 @@ sudo systemctl enable --now thermostat-schedule-morning.timer \
 
 - **Web UI** — open `http://<pi-ip>:5000` for the local control panel and 24-hour history graph.
 - **Home Assistant** — the thermostat registers itself as a *Thermostat* climate device via MQTT discovery; no YAML needed.
-- **Matter (phone apps)** — install the Home Assistant Matter server integration (its MQTT broker/Mosquitto runs on the Home Assistant device, not the Pi), then add the thermostat's climate entity to your Matter bridge. It becomes available in Apple Home / Google Home on iOS and Android.
+- **Matter (phone apps)** — install the Home Assistant [Matter bridge plugin `home-assistant-matter-hub`](https://github.com/RiDDiX/home-assistant-matter-hub/), the Matter server integration (its MQTT broker ([Mosquitto Home Assistant add-on](https://github.com/home-assistant/addons/tree/master/mosquitto)) runs on the Home Assistant device, not the Pi), then add the thermostat's climate entity to your Matter bridge. It becomes available in Apple Home / Google Home on iOS and Android.
 
 ## Local demo mode (try the UI without hardware)
 
