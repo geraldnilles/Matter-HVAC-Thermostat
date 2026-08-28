@@ -122,6 +122,9 @@ Topics:
 | `thermostat/fan/set` | in | `auto` \| `on` |
 | `thermostat/cool/set` | in | float °F |
 | `thermostat/heat/set` | in | float °F |
+| `thermostat/temperature/set` | in | float °F (single setpoint; `cool`/`heat` mode only) |
+
+**Single setpoint routing (`_handle_single_setpoint`):** `thermostat/temperature/set` carries one value, so it is routed by the current internal `system_mode` — `cool` → `set_temp_cool`, `heat` → `set_temp_heat`. In a temperature-range mode (`auto`, published as `heat_cool`) both setpoints are live and one value is ambiguous, and in `off` there is no active setpoint, so **both are ignored with an error logged to stderr**. Use `thermostat/cool/set` + `thermostat/heat/set` to move a range; those are never mode-gated. HA discovery advertises the single setpoint via `temperature_state_topic`/`temperature_command_topic`, with the state derived by template from the existing attributes — the `thermostat/state` payload itself is unchanged. See `spec.md` §4.4.
 
 State payload uses **Matter-aligned attribute names** so HA maps them to the Matter thermostat cluster:
 

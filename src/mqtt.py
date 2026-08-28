@@ -83,8 +83,16 @@ TOPIC_CMD_MODE = f"{TOPIC_PREFIX}/mode/set"
 TOPIC_CMD_FAN = f"{TOPIC_PREFIX}/fan/set"
 TOPIC_CMD_COOL = f"{TOPIC_PREFIX}/cool/set"
 TOPIC_CMD_HEAT = f"{TOPIC_PREFIX}/heat/set"
+TOPIC_CMD_TEMP = f"{TOPIC_PREFIX}/temperature/set"
 
 POLL_INTERVAL = 5.0  # seconds
+
+# Internal `system_mode` values that drive a *single* setpoint. Every other
+# mode is either a temperature-range mode (`auto`, published to Home Assistant
+# as `heat_cool`), where both setpoints are live and a lone value is
+# ambiguous, or has no active setpoint at all (`off`). Single-setpoint
+# commands (thermostat/temperature/set) are only honoured in these modes.
+SINGLE_SETPOINT_MODES = ("cool", "heat")
 
 
 def _to_hass_mode(mode: str) -> str:
@@ -140,6 +148,7 @@ class MqttDaemon:
             self.client.subscribe(TOPIC_CMD_FAN)
             self.client.subscribe(TOPIC_CMD_COOL)
             self.client.subscribe(TOPIC_CMD_HEAT)
+            self.client.subscribe(TOPIC_CMD_TEMP)
             print("Subscribed to command topics")
             
             # Publish initial state
@@ -182,12 +191,49 @@ class MqttDaemon:
                     write_scalar(SET_TEMP_HEAT_FILE, temp)
                 except ValueError:
                     print(f"Invalid heat setpoint: {payload}")
+            elif topic == TOPIC_CMD_TEMP:
+                self._handle_single_setpoint(payload)
                     
             # Publish updated state immediately to MQTT broker
             self._publish_state()
         except Exception as e:
             print(f"Error processing command: {e}")
     
+    def _handle_single_setpoint(self, payload: str) -> None:
+        """
+        Apply a single temperature setpoint command (thermostat/temperature/set).
+
+        A lone setpoint is only meaningful when the thermostat is running in a
+        single-setpoint mode: `cool` uses `set_temp_cool`, `heat` uses
+        `set_temp_heat`. The value is routed to whichever setpoint the current
+        mode actually acts on.
+
+        In a temperature-range mode (`auto` / `heat_cool`) both setpoints are
+        live and one value is ambiguous, and in `off` no setpoint applies at
+        all, so those requests are ignored and an error is logged. Use
+        `thermostat/cool/set` and `thermostat/heat/set` to move both setpoints
+        of a range.
+        """
+        try:
+            temp = round_degree(float(payload))
+        except (TypeError, ValueError):
+            print(f"Invalid temperature setpoint: {payload}")
+            return
+
+        mode = read_file(SYSTEM_MODE_FILE, default="off")
+
+        if mode == "cool":
+            write_scalar(SET_TEMP_COOL_FILE, temp)
+        elif mode == "heat":
+            write_scalar(SET_TEMP_HEAT_FILE, temp)
+        else:
+            print(
+                f"Error: ignoring single setpoint {temp}F; system mode '{mode}' is "
+                f"not a single-setpoint mode (expected one of: "
+                f"{', '.join(SINGLE_SETPOINT_MODES)})",
+                file=sys.stderr,
+            )
+
     def _publish_discovery(self):
         """Publish Home Assistant MQTT Discovery configuration with retain flag."""
         discovery_payload = {
@@ -216,6 +262,20 @@ class MqttDaemon:
             # RoomAirConditioner (Matter device type 0x0072) instead of a
             # plain Thermostat (0x002A). The fan relay stays controllable via
             # the WebUI and the still-subscribed thermostat/fan/set MQTT topic.
+
+            # --- Single Setpoint Topics (enables the TARGET_TEMPERATURE feature) ---
+            # Mirrors the setpoint the current mode actually acts on, so the HA
+            # card shows one value in cool/heat mode. The daemon only accepts
+            # writes on this topic in those modes; in heat_cool/auto the range
+            # pair below is authoritative (see _handle_single_setpoint).
+            "temperature_state_topic": TOPIC_STATE,
+            "temperature_state_template": (
+                "{{ value_json.occupied_cooling_setpoint if "
+                "value_json.system_mode == 'cool' else "
+                "value_json.occupied_heating_setpoint }}"
+            ),
+            "temperature_command_topic": TOPIC_CMD_TEMP,
+            # --- Range Setpoint Topics (enables TARGET_TEMPERATURE_RANGE) ---
             "temperature_high_state_topic": TOPIC_STATE,
             "temperature_high_state_template": "{{ value_json.occupied_cooling_setpoint }}",
             "temperature_high_command_topic": TOPIC_CMD_COOL,
