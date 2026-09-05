@@ -79,6 +79,10 @@ class MatterbridgeProtocolTest(unittest.TestCase):
         self.daemon = object.__new__(self.mqtt.MqttDaemon)
         self.daemon.client = FakeClient()
         self.daemon.running = True
+        # __init__ is bypassed (object.__new__), so wire up the internals that
+        # matter to the methods under test.
+        import threading
+        self.daemon._state_lock = threading.Lock()
         self.daemon._last_state_json = None
 
         # Baseline state: off/auto, cool=74, heat=70 (unchanged unless a test writes them)
@@ -267,11 +271,36 @@ class MatterbridgeProtocolTest(unittest.TestCase):
         out, _err = self.send_write("")
         self.assertNotIn("Error", out)
 
-    def test_write_triggers_state_publish(self):
+    def test_write_does_not_trigger_immediate_state_publish(self):
+        # Regression for the matterbridge echo storm: a controller write must
+        # NOT synchronously re-publish the full state. Re-publishing inside the
+        # write handler made matterbridge's updateHandler re-set every cluster
+        # attribute; each difference fired a separate $Changed callback that
+        # came right back on our write topic, cascading into an unbounded loop
+        # (and queuing stale IPC snapshots behind Matter's transaction mutex,
+        # which made systemMode visibly oscillate 0<->3). The controller's
+        # write is applied and reported by matterbridge's own Matter server;
+        # our daemon only syncs the IPC copy here. State is republished from
+        # the single main loop after each write burst settles.
         before = len(self.daemon.client.published)
         self.send_write(json.dumps({"Thermostat": {"systemMode": 3}}))
+        # IPC is updated...
+        self.assertEqual(utils.read_file(utils.SYSTEM_MODE_FILE), "cool")
+        # ...but no state topic publish is issued from the write handler.
+        topics = [t for t, *_ in self.daemon.client.published[before:]]
+        self.assertNotIn(self.mqtt.TOPIC_STATE, topics)
+
+    def test_write_still_records_changed_state_for_next_poll(self):
+        # A subsequent (non-force) publish from the main loop sees the new IPC
+        # value and emits a single coalesced state update.
+        self.send_write(json.dumps({"Thermostat": {"systemMode": 4}}))
+        before = len(self.daemon.client.published)
+        self.daemon._publish_state()
         topics = [t for t, *_ in self.daemon.client.published[before:]]
         self.assertIn(self.mqtt.TOPIC_STATE, topics)
+        payload_json = self.daemon.client.published[-1][1]
+        payload = json.loads(payload_json)
+        self.assertEqual(payload["Thermostat"]["systemMode"], 4)
 
     # ---------------- echo suppression ---------------- #
     def test_identical_state_not_republished(self):

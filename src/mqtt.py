@@ -28,6 +28,7 @@ occupied setpoints) are converted back and written to IPC.
 import json
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -212,7 +213,10 @@ class MqttDaemon:
 
         # Last state payload published (JSON string); used to suppress echo
         # loops: every state publish makes matterbridge re-set the attributes,
-        # which the plugin forwards back to the write topic.
+        # which the plugin forwards back to the write topic. Protected by
+        # _state_lock because publishes can originate on both the main polling
+        # loop and the MQTT network thread (connect/reconnect).
+        self._state_lock = threading.Lock()
         self._last_state_json = None
 
         # Setup signal handlers
@@ -342,9 +346,10 @@ class MqttDaemon:
         """
         state = self._build_state()
         payload = json.dumps(state)
-        if not force and payload == self._last_state_json:
-            return
-        self._last_state_json = payload
+        with self._state_lock:
+            if not force and payload == self._last_state_json:
+                return
+            self._last_state_json = payload
         self.client.publish(TOPIC_STATE, payload, qos=PUBLISH_QOS, retain=True)
 
     # ---------------- writes from Matter controllers ---------------- #
@@ -383,8 +388,18 @@ class MqttDaemon:
             print(f"Error processing write: {e}")
             return
 
-        # Reflect the new state immediately (skipped if nothing changed).
-        self._publish_state()
+        # NOTE: Do *not* publish state back from inside the controller write
+        # handler. A Matter controller's write is already applied and reported
+        # to all controllers by matterbridge's own Matter server, so echoing
+        # it back here is redundant and creates a self-amplifying feedback
+        # loop: publishing retained state makes matterbridge-mqtt's
+        # updateHandler re-set every attribute on the cluster, which fires
+        # individual '$Changed' events that come right back on our write topic,
+        # each triggering another publish. The resulting burst serializes
+        # behind Matter's transaction mutex and replays stale IPC snapshots,
+        # which is what made systemMode visibly oscillate 0<->3. State is only
+        # republished from the single main loop (run()), which builds one
+        # coherent snapshot from IPC after each write batch settles.
 
     def _apply_thermostat_attributes(self, attrs):
         """
