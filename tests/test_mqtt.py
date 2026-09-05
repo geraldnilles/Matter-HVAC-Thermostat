@@ -81,8 +81,6 @@ class MatterbridgeProtocolTest(unittest.TestCase):
         self.daemon.running = True
         # __init__ is bypassed (object.__new__), so wire up the internals that
         # matter to the methods under test.
-        import threading
-        self.daemon._state_lock = threading.Lock()
         self.daemon._last_state_json = None
 
         # Baseline state: off/auto, cool=74, heat=70 (unchanged unless a test writes them)

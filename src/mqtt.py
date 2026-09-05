@@ -28,7 +28,6 @@ occupied setpoints) are converted back and written to IPC.
 import json
 import signal
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -213,10 +212,9 @@ class MqttDaemon:
 
         # Last state payload published (JSON string); used to suppress echo
         # loops: every state publish makes matterbridge re-set the attributes,
-        # which the plugin forwards back to the write topic. Protected by
-        # _state_lock because publishes can originate on both the main polling
-        # loop and the MQTT network thread (connect/reconnect).
-        self._state_lock = threading.Lock()
+        # which the plugin forwards back to the write topic. No lock needed:
+        # state is only published from the main loop and (re)connect, and a
+        # duplicate publish from that narrow window would be idempotent.
         self._last_state_json = None
 
         # Setup signal handlers
@@ -346,10 +344,9 @@ class MqttDaemon:
         """
         state = self._build_state()
         payload = json.dumps(state)
-        with self._state_lock:
-            if not force and payload == self._last_state_json:
-                return
-            self._last_state_json = payload
+        if not force and payload == self._last_state_json:
+            return
+        self._last_state_json = payload
         self.client.publish(TOPIC_STATE, payload, qos=PUBLISH_QOS, retain=True)
 
     # ---------------- writes from Matter controllers ---------------- #
