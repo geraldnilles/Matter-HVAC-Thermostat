@@ -157,6 +157,17 @@ CONTROL_SEQUENCE_COOLING_AND_HEATING = 4
 MIN_TEMP_F = 60.0
 MAX_TEMP_F = 80.0
 
+# Per-mode setpoint limits. The Matter Thermostat cluster with the AutoMode
+# feature (controlSequenceOfOperation=4) requires minCoolSetpointLimit -
+# minHeatSetpointLimit >= MinSetpointDeadBand, and likewise for the max
+# limits (matter.js ThermostatServer #setpointsValid). With a 4.4 °C (8 °F)
+# deadband the heat and cool ranges must not overlap: heat 60–72 °F,
+# cool 68–80 °F.
+MIN_HEAT_TEMP_F = 60.0
+MAX_HEAT_TEMP_F = 72.0
+MIN_COOL_TEMP_F = 68.0
+MAX_COOL_TEMP_F = 80.0
+
 # MinSetpointDeadBand in tenths of °C (SignedTemperature). 44 ≈ 4.4 °C ≈ 8 °F,
 # matching control.MIN_SETPOINT_GAP, so controllers cannot write overlapping
 # setpoints even though the control daemon would re-separate them anyway.
@@ -247,14 +258,14 @@ class MqttDaemon:
         with AutoMode/Heating/Cooling features (matterbridge core registry).
         """
         limits = {
-            "minHeatSetpointLimit": fahrenheit_to_matter(MIN_TEMP_F),
-            "maxHeatSetpointLimit": fahrenheit_to_matter(MAX_TEMP_F),
-            "minCoolSetpointLimit": fahrenheit_to_matter(MIN_TEMP_F),
-            "maxCoolSetpointLimit": fahrenheit_to_matter(MAX_TEMP_F),
-            "absMinHeatSetpointLimit": fahrenheit_to_matter(MIN_TEMP_F),
-            "absMaxHeatSetpointLimit": fahrenheit_to_matter(MAX_TEMP_F),
-            "absMinCoolSetpointLimit": fahrenheit_to_matter(MIN_TEMP_F),
-            "absMaxCoolSetpointLimit": fahrenheit_to_matter(MAX_TEMP_F),
+            "minHeatSetpointLimit": fahrenheit_to_matter(MIN_HEAT_TEMP_F),
+            "maxHeatSetpointLimit": fahrenheit_to_matter(MAX_HEAT_TEMP_F),
+            "minCoolSetpointLimit": fahrenheit_to_matter(MIN_COOL_TEMP_F),
+            "maxCoolSetpointLimit": fahrenheit_to_matter(MAX_COOL_TEMP_F),
+            "absMinHeatSetpointLimit": fahrenheit_to_matter(MIN_HEAT_TEMP_F),
+            "absMaxHeatSetpointLimit": fahrenheit_to_matter(MAX_HEAT_TEMP_F),
+            "absMinCoolSetpointLimit": fahrenheit_to_matter(MIN_COOL_TEMP_F),
+            "absMaxCoolSetpointLimit": fahrenheit_to_matter(MAX_COOL_TEMP_F),
         }
         config_payload = {
             "deviceTypes": [DEVICE_TYPE_NAME],
