@@ -2,12 +2,12 @@
 
 A custom thermostat that turns a Raspberry Pi and a relay HAT into a full-featured HVAC controller you can operate from your phone — natively, through Apple Home or Google Home, via Matter.
 
-Built to be boring and reliable: no cloud, no app to install, no YAML to fiddle with. It just shows up in Home Assistant as a climate device, publishes its state over MQTT, and switches your HVAC with real hardware relays that fail safe.
+Built to be boring and reliable: no cloud, no app to install, no YAML to fiddle with. It registers itself as a Matter thermostat through [matterbridge](https://github.com/Luligu/matterbridge) and switches your HVAC with real hardware relays that fail safe.
 
 ## Why it's special
 
-- **Native phone control via Matter** — works in the iOS/Android Home apps right out of the box. Home Assistant acts as the Matter bridge; this project handles everything on the Pi side.
-- **No configuration files to write** — Home Assistant auto-discovery registers the thermostat as a Climate entity. No YAML.
+- **Native phone control via Matter** — works in the iOS/Android Home apps right out of the box. [matterbridge](https://github.com/Luligu/matterbridge) + the `matterbridge-mqtt` plugin act as the Matter bridge; this project handles everything on the Pi side.
+- **No configuration files to write** — the thermostat self-registers with the matterbridge-mqtt plugin via a single retained MQTT message. No YAML.
 - **Multi-zone sensing** — multiple wireless Govee H5075 BLE temperature sensors are pooled sensibly: it heats the **coldest** room and cools the **hottest** room.
 - **Protects your HVAC equipment** — 120-second minimum dwell between state changes (compressor protection), a 60-second startup delay, and normally-open relays so everything is OFF on power loss or reboot.
 - **Fails safe on bad data** — if sensor data goes stale, the HVAC is forced off instead of guessing.
@@ -43,19 +43,20 @@ The software follows a "Unix-like" philosophy: instead of one big program, it is
                      │          │ setpoints             │               │                  │
                      │   ┌──────┴──────────┐      ┌─────┴───────────┐   │                  │
                      │   │ thermostat-mqtt │      │ thermostat-web  │   │                  │
-                     │   │   (HA bridge)   │      │ (Flask WebUI)   │   │                  │
+                     │   │ (matterbridge   │      │ (Flask WebUI)   │   │                  │
+                     │   │  mqtt bridge)   │      │                 │   │                  │
                      │   └──────┬──────────┘      └─────────────────┘   │                  │
                      │          │ MQTT             (port 5000)          │                  │
                      └──────────┼───────────────────────────────────────┘
                                 ▼
                      ┌──────────────────────────────────────────────────┐
-                     │       Home Assistant device (separate host)        │
+                     │                  Home server                       │
                      │                                                    │
                      │ ┌──────────────────────┐  ┌──────────────────────┐ │
-                     │ │ MQTT Broker          │  │ Home Assistant       │ │
-                     │ │ (Mosquitto on the    │  │ (Matter bridge)      │ │
-                     │ │ HA device)           │  │                      │ │
-                     │ └──────────────────────┘  └──────────────────────┘ │
+                     │ │ MQTT Broker          │  │ matterbridge         │ │
+                     │ │ (mosquitto)          │  │ + matterbridge-mqtt  │ │
+                     │ └──────────────────────┘  │ (Matter bridge)      │ │
+                     │                           └──────────────────────┘ │
                      │                                                    │
                      │                      │ Matter                      │
                      │                         ▼                          │
@@ -82,7 +83,7 @@ The daemons start in dependency order — setup → sensor → control → gpio/
 sudo apt install python3 python3-pip libgpiod2
 pip3 install -r requirements.txt          # flask, paho-mqtt, bleak
 
-# Configure (sensor MACs, MQTT broker on your Home Assistant device, setpoints)
+# Configure (sensor MACs, mosquitto/matterbridge broker address, setpoints)
 #   edit config/defaults.json → this becomes /etc/thermostat/defaults.json
 
 # Install and enable all six services
@@ -101,8 +102,7 @@ sudo systemctl enable --now thermostat-schedule-morning.timer \
 ### Using it
 
 - **Web UI** — open `http://<pi-ip>:5000` for the local control panel and 24-hour history graph.
-- **Home Assistant** — the thermostat registers itself as a *Thermostat* climate device via MQTT discovery; no YAML needed.
-- **Matter (phone apps)** — install the Home Assistant [Matter bridge plugin `home-assistant-matter-hub`](https://github.com/RiDDiX/home-assistant-matter-hub/), the Matter server integration (its MQTT broker ([Mosquitto Home Assistant add-on](https://github.com/home-assistant/addons/tree/master/mosquitto)) runs on the Home Assistant device, not the Pi), then add the thermostat's climate entity to your Matter bridge. It becomes available in Apple Home / Google Home on iOS and Android.
+- **Matter (phone apps)** — the thermostat self-registers with the matterbridge-mqtt plugin over MQTT; pair matterbridge in Apple Home / Google Home and the thermostat appears natively. No YAML.
 
 ## Local demo mode (try the UI without hardware)
 

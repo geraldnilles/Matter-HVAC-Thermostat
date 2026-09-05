@@ -39,5 +39,5 @@ or via the project venv:
 | `test_control.py` | State-machine coverage for `src/control.py` |
 | `test_demo.py` | Canned-data simulator (`src/demo.py`): ambient model, hysteresis/dwell/action selection, history seeding, and `web.py` CLI flag parsing |
 | `test_schedule.py` | Setpoint scheduler (`src/schedule.py`): argument parsing, whole-degree snapping, and atomic setpoint writes into a temp IPC dir |
-| `test_mqtt.py` | MQTT bridge (`src/mqtt.py`): single-setpoint routing by mode, refusal in `auto`/`off`, whole-degree snapping, command-topic subscription, HA discovery payload — driven with a recording fake client, so no broker is needed |
+| `test_mqtt.py` | MQTT bridge (`src/mqtt.py`): matterbridge-mqtt device protocol — retained config/state/subscribe payloads, unit conversion (hundredths of °C, `SystemModeEnum`), controller write handling and echo suppression — driven with a recording fake client, so no broker is needed |
 | `test_setup.py` | Boot-time IPC seeding (`src/setup.py`): fresh-dir seeding from defaults, "existing files win" preservation contract, partial backfill, idempotent re-runs |

@@ -8,9 +8,11 @@
     "A4:C1:38:00:00:02": "Bedroom"
   },
   "mqtt": {
-    "broker": "homeassistant.lan",
+    "broker": "localhost",
     "port": 1883,
     "username": "",
-    "password": ""
+    "password": "",
+    "topic": "matterbridge",
+    "device_id": "thermostat"
   }
 }

@@ -6,7 +6,7 @@ Technical guide for developers and coding agents working on this repository. It 
 
 ## What this project is
 
-A Matter-compatible HVAC thermostat running on a Raspberry Pi. A relay HAT provides the actual switching; the software is six independent `systemd` services that communicate via atomic file-based IPC in a `tmpfs` directory (`/run/thermostat/`). Home Assistant bridges MQTT → Matter so the thermostat appears natively in iOS/Android Home apps.
+A Matter-compatible HVAC thermostat running on a Raspberry Pi. A relay HAT provides the actual switching; the software is six independent `systemd` services that communicate via atomic file-based IPC in a `tmpfs` directory (`/run/thermostat/`). [matterbridge](https://github.com/Luligu/matterbridge) + the `matterbridge-mqtt` plugin bridge MQTT → Matter so the thermostat appears natively in iOS/Android Home apps.
 
 ## Runtime architecture
 
@@ -18,11 +18,11 @@ A Matter-compatible HVAC thermostat running on a Raspberry Pi. A relay HAT provi
 | 2 | `thermostat-sensor` | BLE scan + aggregation; writes temps + 24 h history; waits for time-sync.target | `systemd/thermostat-sensor.service` |
 | 3 | `thermostat-control` | The "brain"; thermostat logic, hysteresis, safety timers; writes `hvac_action` | `systemd/thermostat-control.service` |
 | 4 | `thermostat-gpio` | The "muscle"; reads `hvac_action`, drives relays via `gpioset`; extra 60 s boot delay (`ExecStartPre`) | `systemd/thermostat-gpio.service` |
-| 5 | `thermostat-mqtt` | Home Assistant bridge; MQTT Climate entity with Matter-aligned attributes | `systemd/thermostat-mqtt.service` |
+| 5 | `thermostat-mqtt` | matterbridge-mqtt device bridge; hosts the Matter Thermostat via the plugin | `systemd/thermostat-mqtt.service` |
 | 5 | `thermostat-web` | Flask WebUI + REST API on `0.0.0.0:5000` | `systemd/thermostat-web.service` |
 | 6 | `thermostat-schedule` | Timer-driven setpoint profiles (6am / 11pm) | `systemd/thermostat-schedule-*.service` + `*.timer` |
 
-Dependency ordering: setup → sensor → control → gpio/mqtt/web. All daemons use `Restart=always` (5 s restarts). The GPIO service's `ExecStartPre=/bin/sleep 60` provides compressor-protection boot delay. The MQTT service connects to a remote broker on the Home Assistant device and has no local broker dependency.
+Dependency ordering: setup → sensor → control → gpio/mqtt/web. All daemons use `Restart=always` (5 s restarts). The GPIO service's `ExecStartPre=/bin/sleep 60` provides compressor-protection boot delay. The MQTT service connects to the mosquitto broker used by the matterbridge-mqtt plugin.
 
 ### Inter-process communication (IPC)
 
@@ -51,11 +51,11 @@ Format rules (spec §5.1.1): scalar files are UTF-8 text with exactly one traili
 | Govee H5075 BLE decoding, allowlist, rolling averages, aggregation, 24 h history, failure→failsafe | `src/sensor.py` |
 | Hysteresis, mode logic, auto conflict resolution, 8 °F setpoint gap, 120 s dwell, 60 s startup delay, data failsafe | `src/control.py` |
 | Relay actuation (`gpioset`, libgpiod v1/v2 auto-detect), pin mapping, shutdown failsafe to OFF | `src/gpio.py` |
-| HA MQTT discovery payload, state publication, command subscription | `src/mqtt.py` |
+| matterbridge-mqtt device protocol (retained config/state/subscribe, write handling) | `src/mqtt.py` |
 | Flask WebUI + REST API endpoints, history graph | `src/web.py`, `src/templates/index.html` |
 | Hardware-free canned-data simulator for the WebUI (local testing) | `src/demo.py` |
 | Timer-driven setpoint profile helper (one-shot, snap + atomic write) | `src/schedule.py` |
-| Default config: sensor MAC allowlist, initial modes/setpoints, MQTT broker | `config/defaults.json` |
+| Default config: sensor MAC allowlist, initial modes/setpoints, MQTT broker + matterbridge topic/device_id | `config/defaults.json` |
 | systemd units and ordering (services + timers) | `systemd/*.service`, `systemd/*.timer` |
 | Install/packaging rules (`DESTDIR`/`PREFIX`/`SYSCONFDIR`/`UNITDIR`) | `Makefile` |
 | Python deps: `flask`, `paho-mqtt`, `bleak` | `requirements.txt` |
@@ -111,35 +111,22 @@ All defined as module-level constants in the daemons. They are safety- or comfor
 
 ## MQTT interface (`src/mqtt.py`)
 
+Targets [matterbridge](https://github.com/Luligu/matterbridge) + the [`matterbridge-mqtt`](https://www.npmjs.com/package/matterbridge-mqtt) plugin (mosquitto broker). The daemon registers a Matter `Thermostat` device (type 769) via the plugin's device protocol — all device announcements are **retained** QoS 2 on `<topic>/<deviceId>/...` (endpoint `root`).
+
 Topics:
 
 | Topic | Direction | Payload |
 |---|---|---|
-| `thermostat/state` | out (5 s) | JSON state |
-| `thermostat/availability` | out, retained | `online` / `offline` |
-| `homeassistant/climate/thermostat/config` | out, retained | HA discovery payload |
-| `thermostat/mode/set` | in | `off` \| `cool` \| `heat` \| `auto` |
-| `thermostat/fan/set` | in | `auto` \| `on` |
-| `thermostat/cool/set` | in | float °F |
-| `thermostat/heat/set` | in | float °F |
-| `thermostat/temperature/set` | in | float °F (single setpoint; `cool`/`heat` mode only) |
+| `<topic>/<device_id>/config/root` | out, retained | Device registration: `{"deviceTypes": ["Thermostat"], "clusters": {...fixed attrs...}}` |
+| `<topic>/<device_id>/state/root` | out (5 s), retained | Current attribute values: `{"Thermostat": {...}}` |
+| `<topic>/<device_id>/subscribe/root` | out, retained | `{"Thermostat": ["systemMode", "occupiedHeatingSetpoint", "occupiedCoolingSetpoint"]}` |
+| `<topic>/<device_id>/write/root` | in | Plugin-forwarded controller writes: `{"Thermostat": {"systemMode": 4, ...}}` |
 
-**Single setpoint routing (`_handle_single_setpoint`):** `thermostat/temperature/set` carries one value, so it is routed by the current internal `system_mode` — `cool` → `set_temp_cool`, `heat` → `set_temp_heat`. In a temperature-range mode (`auto`, published as `heat_cool`) both setpoints are live and one value is ambiguous, and in `off` there is no active setpoint, so **both are ignored with an error logged to stderr**. Use `thermostat/cool/set` + `thermostat/heat/set` to move a range; those are never mode-gated. HA discovery advertises the single setpoint via `temperature_state_topic`/`temperature_command_topic`, with the state derived by template from the existing attributes — the `thermostat/state` payload itself is unchanged. See `spec.md` §4.4.
+**Attribute mapping (verified against matterbridge-mqtt's `clusters.json` and matterbridge's `MatterbridgeThermostatServer` registry entry, which installs the Thermostat behavior with `AutoMode`, `Heating`, `Cooling` features):** temperatures are **hundredths of °C**; `systemMode` uses `SystemModeEnum` (`off`/`auto`/`cool`/`heat` → `0`/`1`/`3`/`4`); `thermostatRunningState` is a `RelayStateBitmap` object (`heat`/`cool`/`fan` camelCase bits mirroring `hvac_action`, plus `fan` when `fan_mode` is `on`); `thermostatRunningMode` is `Off`=0/`Cool`=3/`Heat`=4; `controlSequenceOfOperation` = `CoolingAndHeating` = 4; `minSetpointDeadBand` is in tenths of °C (44 ≈ 8 °F). Fixed attributes (limits 60–80 °F, dead band, control sequence) live in the retained `config`; live values go in `state`. Inbound setpoints are converted back to whole °F via `utils.round_degree()`; unknown attributes/clusters are logged and ignored. Identical consecutive state payloads are suppressed (echo loop prevention, since republished state is forwarded back to `write`).
 
-State payload uses **Matter-aligned attribute names** so HA maps them to the Matter thermostat cluster:
+MQTT config comes from the `mqtt` section of `defaults.json` (broker, port, username/password, `topic`, `device_id`); falls back to `localhost:1883`, base topic `matterbridge`, device id `thermostat`. On connect: publishes config + subscribe + initial state (all retained), subscribes the `write` topic.
 
-| Matter attribute | MQTT JSON key |
-|---|---|
-| `LocalTemperature` | `local_temperature` |
-| `SystemMode` | `system_mode` |
-| `FanMode` | `fan_mode` |
-| `OccupiedCoolingSetpoint` | `occupied_cooling_setpoint` |
-| `OccupiedHeatingSetpoint` | `occupied_heating_setpoint` |
-| `ThermostatRunningState` | `thermostat_running_state` |
-
-MQTT broker config comes from the `mqtt` section of `defaults.json` (broker, port, username/password); falls back to `homeassistant.lan:1883`. On connect: publishes availability, discovery, initial state, subscribes commands. On shutdown: publishes `offline` retained.
-
-> **Do NOT add `fan_mode_*` keys back to the HA discovery payload.** They make Home Assistant set the `FAN_MODE` supported feature, which causes [`home-assistant-matter-hub`](https://github.com/RiDDiX/home-assistant-matter-hub/) to classify the device as a Matter **Room Air Conditioner** (`0x0072`) instead of a plain **Thermostat** (`0x002A`). The `fan_mode` value is still published in `thermostat/state`, and `thermostat/fan/set` remains subscribed, so fan control continues working outside of HA discovery. See `spec.md` §4.4.
+> **Do NOT expose a Matter `FanControl` cluster** — the thermostat is registered as a plain `Thermostat` device type. Fan control remains available through the WebUI and the `fan_mode` IPC file; the `fan` bit of `thermostatRunningState` still reflects fan activity. See `spec.md` §4.4.
 
 ## WebUI REST API (`src/web.py`)
 

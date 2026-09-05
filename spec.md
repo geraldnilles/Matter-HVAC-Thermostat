@@ -66,14 +66,16 @@ The Raspberry Pi directly drives relays for the HVAC components.
   "set_temp_cool": 76.0,
   "set_temp_heat": 68.0,
   "mqtt": {
-    "broker": "homeassistant.lan",
+    "broker": "localhost",
     "port": 1883,
     "username": "thermostat",
-    "password": "secret"
+    "password": "secret",
+    "topic": "matterbridge",
+    "device_id": "thermostat"
   }
 }
 ```
-* The `mqtt` object stores the MQTT broker host, port, and optional authentication credentials. The broker runs on the **separate Home Assistant device** — the thermostat does **not** run a local MQTT broker (no mosquitto on the Pi). Leave `username` and `password` as empty strings (`""`) for brokers that do not require authentication.
+* The `mqtt` object stores the MQTT broker host, port, optional authentication credentials, the matterbridge-mqtt plugin base `topic`, and this device's `device_id` (the `<deviceId>` path segment in every topic). The broker is **mosquitto** (default `localhost:1883`) — the same broker the matterbridge-mqtt plugin subscribes to. Leave `username` and `password` as empty strings (`""`) for brokers that do not require authentication.
 * **Boot Process:** On system startup, before any daemons launch, a one-shot initialization service (`thermostat-setup`) copies values from `defaults.json` to the corresponding files in `/run/thermostat/` to seed the system state. Files that already exist are left untouched, so an external backup/restore service may populate `/run/thermostat/` either before or after `thermostat-setup` runs without its values being overwritten.
 
 ### 3.4 Service Dependencies
@@ -85,7 +87,7 @@ Services start in the following order, managed by systemd `After=` directives:
 3. **thermostat-control** - Starts after setup and sensor (requires temperature data)
 4. **thermostat-gpio** - Starts after setup and control (60-second delay via `ExecStartPre`)
 5. **thermostat-mqtt** / **thermostat-web** - Start after setup and control (can run concurrently).
-   The MQTT daemon connects to a **remote** broker on the Home Assistant device — there is no local broker dependency (`systemd/thermostat-mqtt.service` has no `mosquitto.service` in `After=`/`Wants=`).
+   The MQTT daemon connects to the **mosquitto** broker used by the matterbridge-mqtt plugin (default `localhost:1883`).
 6. **thermostat-schedule-morning** / **thermostat-schedule-night** - One-shot setpoint schedulers triggered by systemd **timer** units (`*.timer`) at fixed times of day (06:00 and 23:00), independent of the daemon startup order.
 
 ## 4. System Components (Services)
@@ -161,33 +163,25 @@ The system is divided into five primary daemons managed by `systemd`.
 
 ### 4.4 MQTT Daemon (`thermostat-mqtt`)
 
-* **Responsibility:** Primary control interface via Home Assistant. Can write to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat` (concurrent with WebUI).
-* **Configuration:** Broker host, port, and optional username/password are loaded from the `mqtt` object in `/etc/thermostat/defaults.json`. If `username` is empty, the daemon connects without authentication.
-* **Broker Location:** The broker is **not** hosted on the Pi — the thermostat connects to the MQTT broker that runs on the separate Home Assistant device (e.g., the [Mosquitto broker add-on](https://github.com/home-assistant/addons/tree/master/mosquitto)/`mosquitto` package in Home Assistant OS). No local MQTT broker service is installed or started by this project.
-* **Protocol:** MQTT Climate entity.
-* **Mode Name Mapping:** The internal `auto` mode (used everywhere in IPC, WebUI, and config) is published to Home Assistant as `heat_cool` (Home Assistant's term for a climate device that can heat and cool simultaneously). Incoming `heat_cool` commands are translated back to `auto` before being written to IPC. No other mode names are affected.
-* **Topic Structure:**
-    * **State Publication:** `thermostat/state` (JSON with temperature, mode, setpoints, action)
-    * **Availability:** `thermostat/availability` (`online`/`offline`)
-    * **HA Discovery:** `homeassistant/climate/thermostat/config` (Retained JSON payload)
-    * **Command Topics (Inbound):**
-        * `thermostat/mode/set` - Values: `off`, `cool`, `heat`, `heat_cool`
-        * `thermostat/fan/set` - Values: `auto`, `on`
-        * `thermostat/cool/set` - Float value for cooling setpoint
-        * `thermostat/heat/set` - Float value for heating setpoint
-        * `thermostat/temperature/set` - Float value for the *single* (active) setpoint; only accepted in `cool`/`heat` mode (see below)
-* **Matter Compatible Attributes:** Maps to:
-  * `local_temperature`: Current average temperature
-  * `system_mode`: Current mode (off/cool/heat/heat_cool)
-  * `fan_mode`: Current fan mode (auto/on)
-  * `occupied_cooling_setpoint`: Cooling setpoint
-  * `occupied_heating_setpoint`: Heating setpoint
-  * `thermostat_running_state`: Current HVAC action (idle/heating/cooling/fan)
-* **Matter Device Type (fan mode not advertised):** The HA discovery payload intentionally omits all `fan_mode_*` discovery keys (`fan_mode_state_topic`, `fan_mode_command_topic`, `fan_modes`). Home Assistant infers its `FAN_MODE` supported feature from those keys, and [`home-assistant-matter-hub`](https://github.com/RiDDiX/home-assistant-matter-hub/) then classifies the entity as a Matter **Room Air Conditioner** (device type `0x0072`) rather than a plain **Thermostat** (`0x002A`). Omitting them keeps the Thermostat classification while fan control remains available through the WebUI and the control/GPIO daemons via the `fan_mode` IPC file; the `thermostat/fan/set` command topic stays subscribed for compatibility. Note: the `fan_mode` value is still included in the `thermostat/state` payload for other MQTT consumers.
-* **Single Setpoint vs. Temperature Range Mode:** Home Assistant exposes two mutually-relevant setpoint styles: a single `target_temp` (the `TARGET_TEMPERATURE` feature, used when the thermostat runs one setpoint) and a heat/cool pair (the `TARGET_TEMPERATURE_RANGE` feature, used by `auto`). `thermostat/temperature/set` carries a lone value, so the daemon routes it by the **current internal `system_mode`**: `cool` → `set_temp_cool`, `heat` → `set_temp_heat`. In the temperature-range mode (`auto`, i.e. HA `heat_cool`) both setpoints are live and a single value is ambiguous, and in `off` no setpoint applies — so in **both** those cases the request is **ignored and an error is logged to stderr** (the state is still re-published, so the client immediately re-syncs to the unchanged setpoints). To move a range, callers must use `thermostat/cool/set` and `thermostat/heat/set`, which are never mode-gated. All setpoint writes are snapped to the nearest whole degree via `utils.round_degree()`. In the HA discovery payload this is advertised through `temperature_state_topic`/`temperature_command_topic`, with `temperature_state_template` mirroring `occupied_cooling_setpoint` in `cool` mode and `occupied_heating_setpoint` otherwise, so the HA card shows a single control in `cool`/`heat`. Unlike the `fan_mode_*` keys above, no change was made to the `thermostat/state` payload itself — the single value is derived purely from the existing Matter-aligned attributes.
-* **Availability:** Publishes `online`/`offline` status to `thermostat/availability` with retain flag.
-* **Update Interval:** Publishes state every 5 seconds.
-* **Output:** Writes to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat`.
+* **Responsibility:** Primary control interface via [matterbridge](https://github.com/Luligu/matterbridge) + the [`matterbridge-mqtt`](https://www.npmjs.com/package/matterbridge-mqtt) plugin, which hosts the Matter `Thermostat` device and bridges it to controllers (Apple Home, Google Home, Alexa). The daemon can write to `system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat` (concurrent with WebUI).
+* **Configuration:** Broker host, port, and optional username/password plus the plugin base `topic` and this device's `device_id` are loaded from the `mqtt` object in `/etc/thermostat/defaults.json`. If `username` is empty, the daemon connects without authentication.
+* **Broker Location:** The broker is **mosquitto**, running locally (default `localhost:1883`) or wherever matterbridge's `matterbridge-mqtt.config.json` points. No other MQTT broker service is installed or started by this project.
+* **Protocol:** matterbridge-mqtt device protocol. All device announcements are published **retained** with QoS 2; an empty retained `config` payload deletes the device.
+* **Topic Structure** (`<topic>/<deviceId>/<subTopic>/<endpointName>`; endpoint is always `root`):
+    * **Device Registration:** `<topic>/<device_id>/config/root` (retained JSON: `deviceTypes` + fixed cluster attributes)
+    * **State Publication:** `<topic>/<device_id>/state/root` (retained JSON: current attribute values, republished every 5 s)
+    * **Attribute Subscription:** `<topic>/<device_id>/subscribe/root` (retained JSON: which attributes the plugin forwards back)
+    * **Controller Writes (Inbound):** `<topic>/<device_id>/write/root` — the plugin forwards Matter controller attribute changes as `{"Thermostat": {"systemMode": 4, ...}}`
+* **Matter Device:** Registers a single Matter `Thermostat` device (device type 769) exposing the `Thermostat` cluster (513) with the `Heating`, `Cooling` and `AutoMode` features (installed by matterbridge's `MatterbridgeThermostatServer` registry entry), plus a `BridgedDeviceBasicInformation` cluster for identity. Fixed attributes (setpoint limits 60–80 °F, `controlSequenceOfOperation` = `CoolingAndHeating` = 4, `minSetpointDeadBand` ≈ 8 °F) live in the retained `config`; live values are published as `state`:
+  * `systemMode`: `SystemModeEnum` — internal `off`/`auto`/`cool`/`heat` → `0`/`1`/`3`/`4`
+  * `localTemperature`: current average temperature (hundredths of °C)
+  * `occupiedCoolingSetpoint` / `occupiedHeatingSetpoint`: setpoints (hundredths of °C)
+  * `thermostatRunningState`: `RelayStateBitmap` object — `heat`/`cool`/`fan` bits mirror `hvac_action` (plus `fan` when `fan_mode` is `on`); single-stage only
+  * `thermostatRunningMode`: `Off`=0 / `Cool`=3 / `Heat`=4 per `hvac_action`
+* **Controller Write Handling:** Subscribed attributes (`systemMode`, `occupiedHeatingSetpoint`, `occupiedCoolingSetpoint`) are converted back to IPC units (enum numbers → mode strings; hundredths of °C → whole °F via `utils.round_degree()`) and written to the IPC files. Unsupported attributes/clusters are logged and ignored. Every write is followed by an immediate state publish unless the payload is unchanged (echo suppression, since republished state is forwarded back to the `write` topic).
+* **Fan Control:** Deliberately **not** exposed as a Matter `FanControl` cluster — the fan remains controllable through the WebUI and the `fan_mode` IPC file. The `fan` bit of `thermostatRunningState` still reflects `fan_mode`/`hvac_action` so controllers display fan activity.
+* **Update Interval:** Publishes state every 5 seconds (and immediately after applying a controller write).
+* **Output:** Writes to `system_mode`, `set_temp_cool`, `set_temp_heat` (fan remains WebUI-only).
 
 ### 4.5 WebUI Daemon (`thermostat-web`)
 
