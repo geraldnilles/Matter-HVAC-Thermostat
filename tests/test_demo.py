@@ -87,7 +87,7 @@ class TestActionSelection(unittest.TestCase):
                                   since_before=MIN_DWELL_SECONDS + 1),
                          "heating")
         # Crossing the upper edge releases heating into the post-cycle
-        # fan purge (spec 4.2), not straight to idle.
+        # post-cycle fan purge (AGENTS.md), not straight to idle.
         self.assertEqual(self._at(68.6, 72.0, action="heating",
                                   since_before=MIN_DWELL_SECONDS + 1),
                          "fan")

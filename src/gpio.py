@@ -13,7 +13,7 @@ import time
 
 from utils import HVAC_ACTION_FILE, read_file
 
-# GPIO pin definitions (BCM numbering per spec 2.1)
+# GPIO pin definitions (BCM numbering, see AGENTS.md Hardware interface)
 PINS = {"fan": 20, "compressor": 21, "heat": 26}
 
 CHIP = "gpiochip0"

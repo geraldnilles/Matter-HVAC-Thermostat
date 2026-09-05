@@ -46,7 +46,7 @@ def atomic_write(filepath: Path, content: str) -> None:
     then atomically renames to target. This ensures readers never see
     partial writes, even with concurrent writers (e.g., MQTT and WebUI).
     
-    Per spec 3.2: Writers must create a unique temp file, flush to disk,
+    Per AGENTS.md (IPC section): writers must create a unique temp file, flush to disk,
     and atomically rename to prevent race conditions.
     
     Args:
@@ -99,7 +99,7 @@ def write_scalar(filepath: Path, value: float | str) -> None:
     """
     Write a scalar value to IPC file with proper formatting.
     
-    Per spec 5.1.1: content must be UTF-8 plain text followed immediately 
+    Per AGENTS.md (IPC format rules): content must be UTF-8 plain text followed immediately 
     by a single newline character.
     
     Args:

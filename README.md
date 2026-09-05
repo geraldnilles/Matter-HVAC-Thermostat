@@ -117,11 +117,10 @@ Then open **http://127.0.0.1:5000**. The demo generates a realistic 24-hour temp
 
 ## For developers
 
-The repository contains a detailed technical reference — service internals, IPC file formats, module map, GPIO pinout, MQTT topics, tuning constants, and packaging details:
-
-➡️ **[AGENTS.md](AGENTS.md)**
-
-The canonical system design is also spec'd in **[spec.md](spec.md)**.
+The repository's **[AGENTS.md](AGENTS.md)** is the sole canonical technical
+reference — it documents the service internals, IPC file formats, configuration
+schema, module map, GPIO pinout, MQTT topics, tuning constants, and packaging
+details.
 
 ## License
 

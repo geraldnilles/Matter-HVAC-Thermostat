@@ -31,8 +31,8 @@ HISTORY_MINUTES = 24 * 60      # 1440 samples, 1-minute interval
 SAMPLE_SECONDS = 60
 MAX_HISTORY = HISTORY_MINUTES
 
-HYSTERESIS = 0.5               # °F, centered on setpoint (spec §4.2)
-MIN_DWELL_SECONDS = 120        # °s, spec §4.2 minimum state dwell
+HYSTERESIS = 0.5               # °F, centered on setpoint (AGENTS.md)
+MIN_DWELL_SECONDS = 120        # °s, AGENTS.md minimum state dwell
 
 # Room temperature model
 AMBIENT_MEAN = 68.0            # °F daily mean outdoor temperature
@@ -141,7 +141,7 @@ class DemoSimulator:
         """
         Unlatched desired action from current temps, ignoring dwell.
 
-        Implements the hysteresis logic from spec §4.2 (centered on setpoint)
+        Implements the hysteresis logic from AGENTS.md (centered on setpoint)
         plus auto-mode conflict resolution and the fan-on idle rule.
         """
         mode = self.mode
@@ -170,7 +170,7 @@ class DemoSimulator:
         want_heat = want_heat and heat_allowed
         want_cool = want_cool and cool_allowed
 
-        # Auto mode conflict resolution (spec §4.2): compare temperature
+        # Auto mode conflict resolution (AGENTS.md): compare temperature
         # differences and prioritize the larger need.
         if want_heat and want_cool:
             heat_diff = self.heat - min_temp
@@ -193,7 +193,7 @@ class DemoSimulator:
         Return the action the system should occupy now, honoring dwell time.
 
         Pure w.r.t. ``min_temp``/``max_temp``/``now`` — does not mutate state.
-        Includes the post-cycle fan purge from spec §4.2.
+        Includes the post-cycle fan purge described in AGENTS.md.
         """
         if now is None:
             now = self.now

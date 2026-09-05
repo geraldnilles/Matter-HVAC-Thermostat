@@ -277,7 +277,7 @@ class SetpointSeparationTests(ControlStateMachineTest):
         self.assertGreaterEqual(cool - heat, 8.0)
         self.assertAlmostEqual(cool + heat, 148.0, delta=0.001)
 
-    def test_spec_example_72_75_becomes_70_78(self):
+    def test_gap_expand_example_72_75_becomes_70_78(self):
         d = self.daemon()
         self.seed(min_t=70.0, max_t=74.0, mode="heat",
                   heat_sp=72.0, cool_sp=75.0)
