@@ -245,12 +245,11 @@
                 <div class="stat-value" id="max-temp">--</div>
                 <div class="stat-label">Max</div>
             </div>
+            <div class="stat" id="outdoor-stat" style="display: none;">
+                <div class="stat-value" id="outdoor-temp">--</div>
+                <div class="stat-label">Outdoor</div>
+            </div>
         </div>
-    </div>
-    
-    <div class="card" id="outdoor-card" style="display: none;">
-        <div class="temp-display" id="outdoor-temp" style="color: #80CBC4;">--</div>
-        <div class="temp-label">Outdoor Temperature</div>
     </div>
 
     <div class="card">
@@ -372,17 +371,18 @@
             document.getElementById('max-temp').textContent = 
                 currentState.max_temp ? currentState.max_temp.toFixed(1) : '--';
 
-            // Outdoor temperature (informational). Shown only when an outdoor
-            // sensor is configured; renders "--" when the reading is stale.
-            const outdoorCard = document.getElementById('outdoor-card');
+            // Outdoor temperature (informational). Shown as a third
+            // sub-entry alongside Min/Max only when an outdoor sensor is
+            // configured; renders "--" when the reading is stale.
+            const outdoorStat = document.getElementById('outdoor-stat');
             const outdoorEl = document.getElementById('outdoor-temp');
             if (currentState.outdoor_configured) {
-                outdoorCard.style.display = '';
+                outdoorStat.style.display = '';
                 outdoorEl.textContent = typeof currentState.outdoor_temp === 'number'
-                    ? currentState.outdoor_temp.toFixed(1) + '°F'
+                    ? currentState.outdoor_temp.toFixed(1)
                     : '--';
             } else {
-                outdoorCard.style.display = 'none';
+                outdoorStat.style.display = 'none';
             }
             
             // HVAC status
