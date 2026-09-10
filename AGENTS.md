@@ -196,14 +196,14 @@ Topics:
 | `<topic>/<device_id>/state/root` | out (5 s), retained | Current attribute values: `{"Thermostat": {...}}` |
 | `<topic>/<device_id>/subscribe/root` | out, retained | `{"Thermostat": ["systemMode", "occupiedHeatingSetpoint", "occupiedCoolingSetpoint"]}` |
 | `<topic>/<device_id>/write/root` | in | Plugin-forwarded controller writes: `{"Thermostat": {"systemMode": 4, ...}}` |
-| `<topic>/<device_id>-fan/config/root` | out, retained | Fan registration: `{"deviceTypes": ["Fan"], "clusters": {"FanControl": {"fanMode": 0, "fanModeSequence": 5}}}` |
-| `<topic>/<device_id>-fan/state/root` | out (5 s), retained | `{"FanControl": {"fanMode": 0 \| 3}}` |
+| `<topic>/<device_id>-fan/config/root` | out, retained | Fan registration: `{"deviceTypes": ["Fan"], "clusters": {"FanControl": {"fanMode": 5, "fanModeSequence": 4}}}` |
+| `<topic>/<device_id>-fan/state/root` | out (5 s), retained | `{"FanControl": {"fanMode": 3 \| 5}}` (`High` \| `Auto`) |
 | `<topic>/<device_id>-fan/subscribe/root` | out, retained | `{"FanControl": ["fanMode"]}` |
-| `<topic>/<device_id>-fan/write/root` | in | `{"FanControl": {"fanMode": 0 \| 3}}` |
+| `<topic>/<device_id>-fan/write/root` | in | `{"FanControl": {"fanMode": 0 \| 3 \| 5}}` |
 | `<topic>/<device_id>-outdoor/config/root` | out, retained | Temperature-sensor registration: `{"deviceTypes": ["TemperatureSensor"], "clusters": {...}}` |
 | `<topic>/<device_id>-outdoor/state/root` | out (5 s), retained | `{"TemperatureMeasurement": {"measuredValue": <hundredths °C>}}` |
 
-**Fan (`FanControl`, cluster 514):** the Fan device exposes `FanControl` with `fanModeSequence` = `OffHigh` (5), so only `FanMode` `Off` (0) and `High` (3) are valid — matterbridge's FanControl server rejects any other mode with a `ConstraintError` before the write reaches the topic. IPC `fan_mode` maps `auto` → `Off` (0) and `on` → `High` (3); inbound writes map `0` → `auto`, `3` → `on`, anything else is logged and ignored. State is `{"FanControl": {"fanMode": ...}}` (the server derives `percentSetting`). Note the `Fan` device type is separate from the Thermostat; the Thermostat device does **not** expose a `FanControl` cluster (only its `thermostatRunningState` `fan` bit).
+**Fan (`FanControl`, cluster 514):** the Fan device exposes `FanControl` with `fanModeSequence` = `OffHighAuto` (4), admitting `FanMode` `Off` (0), `High` (3) and `Auto` (5) — matterbridge's FanControl server rejects any other mode with a `ConstraintError` before the write reaches the topic. The Auto-capable sequence is **required**: the plugin installs the `Auto` feature, and the schema conformance rule `[!AUT].a` rejects `fanModeSequence` `OffHigh` (5) with matter.js error 135. IPC `fan_mode` maps `auto` → `Auto` (5) and `on` → `High` (3); inbound writes map `Auto`/`Off` → `auto` and `High` → `on` (anything else is logged and ignored). State is `{"FanControl": {"fanMode": ...}}` (the server derives `percentSetting`). Note the `Fan` device type is separate from the Thermostat; the Thermostat device does **not** expose a `FanControl` cluster (only its `thermostatRunningState` `fan` bit).
 
 **Temperature Sensor (`TemperatureMeasurement`, cluster 0x402):** read-only, publishes `measuredValue` = `outdoor_temp` (°F) converted to hundredths of °C via `fahrenheit_to_matter()` (e.g. 72 °F → 2222). When `outdoor_temp` is missing (sensor unconfigured/stale) the daemon publishes nothing for this device (no retained `state`). The sensor's `write` topic is never subscribed. `TemperatureMeasurement` is not listed in the sensor `config`: the plugin auto-creates it with valid null `measuredValue`/`minMeasuredValue`/`maxMeasuredValue` defaults, which the retained `state` then fills.
 

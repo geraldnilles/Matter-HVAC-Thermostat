@@ -221,14 +221,16 @@ SUBSCRIBED_THERMOSTAT_ATTRIBUTES = ["systemMode", "occupiedHeatingSetpoint", "oc
 # Matter FanControl cluster (id 514) constants, for the separate Fan device.
 #
 # IPC `fan_mode` has exactly two states: "auto" (system controls the fan) and
-# "on" (fan forced on). They map onto the only two FanMode values admitted by
-# a FanModeSequence of OffHigh (5):
-#     FanMode Off  = 0  <- "auto"
-#     FanMode High = 3  <- "on"
+# "on" (fan forced on). They map onto FanMode Auto=5 and High=3.
+#
 # matterbridge installs FanControl with the Auto and Step features
-# (MatterbridgeFanControlServer.with('Auto', 'Step')); with an OffHigh
-# sequence the server rejects every other FanMode with a ConstraintError
-# before a write ever reaches our topic, so only 0/3 are handled here.
+# (MatterbridgeFanControlServer.with('Auto', 'Step')), so `fanModeSequence`
+# MUST be a sequence that includes Auto: the schema conformance rule
+# "[!AUT].a" rejects any other value (matter.js error 135, "Matter does not
+# allow enum value OffHigh (ID 5) here"). OffHighAuto (4) is the narrowest
+# such sequence, admitting only {Off, High, Auto}; every other FanMode is
+# rejected by the server with a ConstraintError before a write reaches our
+# topic, so only those three values are handled here.
 # ---------------------------------------------------------------------------
 
 # Device type "Fan" (id 43).
@@ -237,12 +239,17 @@ DEVICE_TYPE_FAN = "Fan"
 # Cluster name as used in config/state/subscribe/write payloads.
 CLUSTER_FAN_CONTROL = "FanControl"
 
-# FanModeSequenceEnum: OffHigh=5 (only FanMode Off/High are selectable).
-FAN_MODE_SEQUENCE_OFF_HIGH = 5
+# FanModeSequenceEnum: OffHighAuto=4. Required because the plugin installs the
+# Auto feature; admits exactly FanMode Off/High/Auto.
+FAN_MODE_SEQUENCE_OFF_HIGH_AUTO = 4
 
-# FanModeEnum: Off=0, High=3.
-FAN_MODE_TO_MATTER = {"auto": 0, "on": 3}
-FAN_MODE_FROM_MATTER = {v: k for k, v in FAN_MODE_TO_MATTER.items()}
+# FanModeEnum: Auto=5 (fan under system control), High=3 (fan forced on).
+FAN_MODE_TO_MATTER = {"auto": 5, "on": 3}
+
+# Inbound FanMode writes. Auto and Off both mean "not forced on" -> IPC
+# "auto"; High -> "on". (Off is accepted as a benign fallback: the real system
+# has no separate "fan off" state, so requesting Off settles back on Auto.)
+FAN_MODE_FROM_MATTER = {5: "auto", 3: "on", 0: "auto"}
 
 # Attributes the daemon wants pushed back on the plugin's write topic.
 SUBSCRIBED_FAN_ATTRIBUTES = ["fanMode"]
@@ -456,8 +463,9 @@ class MqttDaemon:
 
         FanControl's mandatory attributes have no schema default (matter.js
         error 135), so `fanMode` and `fanModeSequence` are set explicitly.
-        FanModeSequence OffHigh limits the selectable modes to Off/High,
-        matching the two-state IPC `fan_mode` file.
+        FanModeSequence OffHighAuto is required by the plugin's Auto feature
+        (conformance "[!AUT].a") and limits the selectable modes to
+        Off/High/Auto, matching the two-state IPC `fan_mode` file.
         """
         config_payload = {
             "deviceTypes": [DEVICE_TYPE_FAN],
@@ -470,7 +478,7 @@ class MqttDaemon:
                 },
                 CLUSTER_FAN_CONTROL: {
                     "fanMode": FAN_MODE_TO_MATTER["auto"],
-                    "fanModeSequence": FAN_MODE_SEQUENCE_OFF_HIGH,
+                    "fanModeSequence": FAN_MODE_SEQUENCE_OFF_HIGH_AUTO,
                 },
             },
         }
@@ -486,7 +494,7 @@ class MqttDaemon:
     def _build_fan_state(self) -> dict:
         """Build the FanControl `state` payload from the IPC `fan_mode` file."""
         fan_mode = read_file(FAN_MODE_FILE, default="auto")
-        return {CLUSTER_FAN_CONTROL: {"fanMode": FAN_MODE_TO_MATTER.get(fan_mode, 0)}}
+        return {CLUSTER_FAN_CONTROL: {"fanMode": FAN_MODE_TO_MATTER.get(fan_mode, FAN_MODE_TO_MATTER["auto"])}}
 
     def _publish_fan_state(self, force: bool = False):
         """
@@ -650,10 +658,11 @@ class MqttDaemon:
         """
         Apply forwarded FanControl attribute changes to the IPC files.
 
-        Only `fanMode` is handled: a FanModeSequence of OffHigh admits just
-        Off(0) and High(3), which map to the two-state IPC `fan_mode` file.
-        Any other value is logged and skipped; the plugin's FanControl server
-        normally rejects out-of-sequence modes before they reach this topic.
+        Only `fanMode` is handled: a FanModeSequence of OffHighAuto admits
+        just Auto(5), High(3) and Off(0), which map to the two-state IPC
+        `fan_mode` file. Any other value is logged and skipped; the plugin's
+        FanControl server normally rejects out-of-sequence modes before they
+        reach this topic.
         """
         if not isinstance(attrs, dict):
             print(f"Error: '{CLUSTER_FAN_CONTROL}' write payload is not an object: {attrs!r}")

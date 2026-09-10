@@ -456,8 +456,8 @@ class FanDeviceTest(unittest.TestCase):
             self.daemon._publish_fan_config()
         cfg = json.loads(self.daemon.client.published[-1][1])
         fan = cfg["clusters"][self.mqtt.CLUSTER_FAN_CONTROL]
-        self.assertEqual(fan["fanMode"], 0)  # Off
-        self.assertEqual(fan["fanModeSequence"], 5)  # OffHigh
+        self.assertEqual(fan["fanMode"], 5)  # Auto
+        self.assertEqual(fan["fanModeSequence"], 4)  # OffHighAuto (Auto feature requires it)
 
     def test_fan_subscribe_declaration(self):
         with contextlib.redirect_stdout(io.StringIO()):
@@ -468,23 +468,23 @@ class FanDeviceTest(unittest.TestCase):
         self.assertEqual(json.loads(payload), {"FanControl": ["fanMode"]})
 
     # ---------------- state payload ---------------- #
-    def test_fan_state_auto_maps_to_off(self):
+    def test_fan_state_auto_maps_to_auto_mode(self):
         self.set_fan_mode("auto")
         topic, state, qos, retain = self.fan_state()
         self.assertEqual(topic, self.mqtt.FAN_TOPIC_STATE)
         self.assertTrue(retain)
         self.assertEqual(qos, self.mqtt.PUBLISH_QOS)
-        self.assertEqual(state, {"FanControl": {"fanMode": 0}})
+        self.assertEqual(state, {"FanControl": {"fanMode": 5}})  # Auto
 
     def test_fan_state_on_maps_to_high(self):
         self.set_fan_mode("on")
         _topic, state, _qos, _retain = self.fan_state()
         self.assertEqual(state, {"FanControl": {"fanMode": 3}})
 
-    def test_fan_state_unknown_ipc_value_defaults_to_off(self):
+    def test_fan_state_unknown_ipc_value_defaults_to_auto(self):
         self.set_fan_mode("bogus")
         _topic, state, _qos, _retain = self.fan_state()
-        self.assertEqual(state, {"FanControl": {"fanMode": 0}})
+        self.assertEqual(state, {"FanControl": {"fanMode": 5}})  # Auto
 
     # ---------------- echo suppression ---------------- #
     def test_identical_fan_state_not_republished(self):
@@ -511,6 +511,12 @@ class FanDeviceTest(unittest.TestCase):
     def test_write_fan_mode_off_sets_auto(self):
         self.set_fan_mode("on")
         _out, err = self.send_write(json.dumps({"FanControl": {"fanMode": 0}}))
+        self.assertEqual(utils.read_file(utils.FAN_MODE_FILE), "auto")
+        self.assertEqual(err, "")
+
+    def test_write_fan_mode_auto_sets_auto(self):
+        self.set_fan_mode("on")
+        _out, err = self.send_write(json.dumps({"FanControl": {"fanMode": 5}}))
         self.assertEqual(utils.read_file(utils.FAN_MODE_FILE), "auto")
         self.assertEqual(err, "")
 
