@@ -9,11 +9,12 @@ Built to be boring and reliable: no cloud, no app to install, no YAML to fiddle 
 - **Native phone control via Matter** — works in the iOS/Android Home apps right out of the box. [matterbridge](https://github.com/Luligu/matterbridge) + the `matterbridge-mqtt` plugin act as the Matter bridge; this project handles everything on the Pi side.
 - **No configuration files to write** — the thermostat self-registers with the matterbridge-mqtt plugin via a single retained MQTT message. No YAML.
 - **Multi-zone sensing** — multiple wireless Govee H5075 BLE temperature sensors are pooled sensibly: it heats the **coldest** room and cools the **hottest** room.
+- **Optional outdoor temperature** — configure one extra Govee sensor for outside. It is purely informational: its reading shows on the dashboard and history graph but is never averaged with or allowed to influence the room temperatures.
 - **Protects your HVAC equipment** — 120-second minimum dwell between state changes (compressor protection), a 60-second startup delay, and normally-open relays so everything is OFF on power loss or reboot.
 - **Fails safe on bad data** — if sensor data goes stale, the HVAC is forced off instead of guessing.
 - **Setpoint protection** — heat and cool setpoints are kept at least 8 °F apart automatically.
 - **Automatic daily schedule** — systemd timers set the thermostat to a day profile (68/76 °F) at 6am and a night profile (67/75 °F) at 11pm.
-- **Built-in web interface** — a local Flask dashboard with a 24-hour temperature history graph and a color-coded HVAC action bar.
+- **Built-in web interface** — a local Flask dashboard with a 24-hour temperature history graph (including the outdoor temperature when configured) and a color-coded HVAC action bar.
 - **Yocto-friendly** — standard `make install` with `DESTDIR`/`PREFIX` overrides for cross-packaging.
 
 ## How it's built
@@ -83,7 +84,7 @@ The daemons start in dependency order — setup → sensor → control → gpio/
 sudo apt install python3 python3-pip libgpiod2
 pip3 install -r requirements.txt          # flask, paho-mqtt, bleak
 
-# Configure (sensor MACs, mosquitto/matterbridge broker address, setpoints)
+# Configure (sensor MACs, optional outdoor_sensor MAC, mosquitto/matterbridge broker address, setpoints)
 #   edit config/defaults.json → this becomes /etc/thermostat/defaults.json
 
 # Install and enable all six services

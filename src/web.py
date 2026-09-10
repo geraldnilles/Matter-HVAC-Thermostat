@@ -6,6 +6,7 @@ Flask-based web interface for manual control and temperature history.
 """
 
 import argparse
+import json
 import signal
 import sys
 from pathlib import Path
@@ -13,9 +14,11 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 
 from utils import (
     round_degree,
+    get_outdoor_sensor,
     CURRENT_TEMP_FILE,
     MIN_TEMP_FILE,
     MAX_TEMP_FILE,
+    OUTDOOR_TEMP_FILE,
     HISTORY_FILE,
     SYSTEM_MODE_FILE,
     FAN_MODE_FILE,
@@ -30,6 +33,8 @@ from utils import (
 
 app = Flask(__name__)
 
+DEFAULTS_PATH = Path("/etc/thermostat/defaults.json")
+
 # Demo-mode simulator, created lazily so production imports never touch demo.py.
 _demo_simulator = None
 
@@ -40,6 +45,7 @@ _IPC_FILE_NAMES = {
     "CURRENT_TEMP_FILE": "current_temp",
     "MIN_TEMP_FILE": "min_temp",
     "MAX_TEMP_FILE": "max_temp",
+    "OUTDOOR_TEMP_FILE": "outdoor_temp",
     "HISTORY_FILE": "history.json",
     "SYSTEM_MODE_FILE": "system_mode",
     "FAN_MODE_FILE": "fan_mode",
@@ -81,12 +87,32 @@ def redirect_ipc(data_dir):
 running = True
 
 
+def outdoor_configured() -> bool:
+    """
+    Return True when ``defaults.json`` defines an outdoor sensor.
+
+    Lets the WebUI show the (informational) outdoor card even when the sensor
+    is momentarily stale and ``outdoor_temp`` has no value yet.
+    """
+    try:
+        with open(DEFAULTS_PATH, "r", encoding="utf-8") as f:
+            return get_outdoor_sensor(json.load(f)) is not None
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False
+
+
 def read_state():
     """Read current thermostat state from IPC files."""
+    outdoor_temp = read_float(OUTDOOR_TEMP_FILE)
     return {
         "current_temp": read_float(CURRENT_TEMP_FILE),
         "min_temp": read_float(MIN_TEMP_FILE),
         "max_temp": read_float(MAX_TEMP_FILE),
+        "outdoor_temp": outdoor_temp,
+        # Show the outdoor card when a sensor is configured *or* a reading is
+        # already present (the latter covers demo mode, which has no
+        # /etc/thermostat/defaults.json).
+        "outdoor_configured": outdoor_configured() or outdoor_temp is not None,
         "system_mode": read_file(SYSTEM_MODE_FILE, default="off"),
         "fan_mode": read_file(FAN_MODE_FILE, default="auto"),
         "set_temp_cool": read_float(SET_TEMP_COOL_FILE, default=74.0),

@@ -21,6 +21,7 @@ from utils import (
     CURRENT_TEMP_FILE,
     MIN_TEMP_FILE,
     MAX_TEMP_FILE,
+    OUTDOOR_TEMP_FILE,
     HISTORY_FILE,
     SET_TEMP_COOL_FILE,
     SET_TEMP_HEAT_FILE,
@@ -29,6 +30,7 @@ from utils import (
     read_file,
     write_scalar,
     write_json,
+    partition_sensors,
     IPC_DIR,
 )
 
@@ -97,21 +99,36 @@ class SensorDaemon:
         self.last_mono_time = time.monotonic()
         self.last_adv_mono_time = time.monotonic()
         
-        # Load allowlist from defaults
-        self.allowlist = self._load_allowlist()
+        # Load configuration from defaults
+        config = self._load_config()
+
+        # Room allowlist (aggregated) and the optional informational outdoor
+        # sensor, kept separate so the outdoor reading can never skew room
+        # temperatures. ``partition_sensors`` upper-cases MACs and removes the
+        # outdoor MAC from the room map if it appears in both.
+        self.allowlist, self.outdoor_mac = partition_sensors(config)
+
+        self.outdoor_buffer = None
+        if self.outdoor_mac:
+            self.outdoor_buffer = SensorBuffer("Outdoor")
+
         print(f"Loaded {len(self.allowlist)} sensors from allowlist:")
         for mac, name in self.allowlist.items():
             print(f"  {mac}: {name}")
             self.sensors[mac] = SensorBuffer(name)
-    
-    def _load_allowlist(self) -> dict:
-        """Load sensor MAC allowlist from defaults.json."""
+
+        if self.outdoor_mac:
+            print(f"Outdoor sensor configured: {self.outdoor_mac} (informational only)")
+        else:
+            print("No outdoor sensor configured.")
+
+    def _load_config(self) -> dict:
+        """Load configuration from defaults.json (empty dict on failure)."""
         try:
             with open(DEFAULTS_PATH, "r", encoding="utf-8") as f:
-                config = json.load(f)
-            return config.get("sensors", {})
+                return json.load(f)
         except (FileNotFoundError, json.JSONDecodeError) as e:
-            print(f"Warning: Could not load allowlist from {DEFAULTS_PATH}: {e}")
+            print(f"Warning: Could not load config from {DEFAULTS_PATH}: {e}")
             return {}
     
     def _decode_govee_temp(self, manufacturer_data: dict) -> float | None:
@@ -149,8 +166,9 @@ class SensorDaemon:
         """Process BLE advertisement from scanner."""
         mac = device.address.upper()
         
-        # Filter by allowlist
-        if mac not in self.allowlist:
+        # Filter by allowlist (room sensors) or the optional outdoor sensor
+        is_outdoor = self.outdoor_mac is not None and mac == self.outdoor_mac
+        if mac not in self.allowlist and not is_outdoor:
             return
         
         # Look for Govee manufacturer data
@@ -160,8 +178,24 @@ class SensorDaemon:
         
         now = time.monotonic()
         self.last_adv_mono_time = now
+
+        if is_outdoor:
+            # Informational only: buffered separately and never aggregated
+            # into the room temperatures.
+            self.outdoor_buffer.add_reading(now, temp)
+            print(f"Outdoor sensor ({mac}): {temp:.2f}°F")
+            return
+
         self.sensors[mac].add_reading(now, temp)
         print(f"Sensor {self.allowlist[mac]} ({mac}): {temp:.2f}°F")
+
+    def _get_outdoor_temp(self, now: float) -> float | None:
+        """Return the outdoor sensor's rolling average, or None if unset/stale."""
+        if self.outdoor_buffer is None:
+            return None
+        if not self.outdoor_buffer.is_valid(now):
+            return None
+        return self.outdoor_buffer.get_average()
     
     def _get_valid_sensors(self, now: float) -> list[tuple[str, float]]:
         """Get list of (mac, avg_temp) for all valid (non-stale) sensors."""
@@ -204,6 +238,10 @@ class SensorDaemon:
             "avg": round(avg_temp, 2),
             "sensors": sensor_readings
         }
+        # Optional informational outdoor temperature (never part of ``avg``).
+        outdoor_temp = self._get_outdoor_temp(mono_now)
+        if outdoor_temp is not None:
+            entry["outdoor"] = round(outdoor_temp, 2)
         if set_temp_cool is not None:
             entry["set_temp_cool"] = round(set_temp_cool, 2)
         if set_temp_heat is not None:
@@ -224,6 +262,9 @@ class SensorDaemon:
                 CURRENT_TEMP_FILE.unlink()
             except FileNotFoundError:
                 pass
+            # Outdoor reading is independent of the room failsafe and is still
+            # reported (or cleared) for the WebUI.
+            self._write_outdoor_temp(now)
             return
         
         temps = [t for _, t in valid_sensors]
@@ -235,8 +276,29 @@ class SensorDaemon:
         write_scalar(CURRENT_TEMP_FILE, round(current, 2))
         write_scalar(MIN_TEMP_FILE, round(min_temp, 2))
         write_scalar(MAX_TEMP_FILE, round(max_temp, 2))
-        
+
+        # Outdoor temperature is informational and independent of the room
+        # aggregation, so it is written even when no room sensors are valid.
+        self._write_outdoor_temp(now)
+
         print(f"IPC updated: current={current:.2f}, min={min_temp:.2f}, max={max_temp:.2f}")
+
+    def _write_outdoor_temp(self, now: float):
+        """Write (or clear) the informational outdoor temperature IPC file."""
+        if self.outdoor_buffer is None:
+            return
+
+        outdoor = self._get_outdoor_temp(now)
+        if outdoor is None:
+            # Stale/unseen outdoor sensor: remove the file so the WebUI can
+            # render an explicit "unavailable" state instead of a stale value.
+            try:
+                OUTDOOR_TEMP_FILE.unlink()
+            except FileNotFoundError:
+                pass
+            return
+
+        write_scalar(OUTDOOR_TEMP_FILE, round(outdoor, 2))
     
     def _write_history_file(self):
         """Persist history to IPC file."""

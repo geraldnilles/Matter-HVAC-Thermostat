@@ -38,6 +38,7 @@ _FILE_NAMES = {
     "CURRENT_TEMP_FILE": "current_temp",
     "MIN_TEMP_FILE": "min_temp",
     "MAX_TEMP_FILE": "max_temp",
+    "OUTDOOR_TEMP_FILE": "outdoor_temp",
     "HISTORY_FILE": "history.json",
     "SYSTEM_MODE_FILE": "system_mode",
     "FAN_MODE_FILE": "fan_mode",

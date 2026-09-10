@@ -248,6 +248,11 @@
         </div>
     </div>
     
+    <div class="card" id="outdoor-card" style="display: none;">
+        <div class="temp-display" id="outdoor-temp" style="color: #80CBC4;">--</div>
+        <div class="temp-label">Outdoor Temperature</div>
+    </div>
+
     <div class="card">
         <div class="status idle" id="hvac-status">Idle</div>
     </div>
@@ -366,6 +371,19 @@
                 currentState.min_temp ? currentState.min_temp.toFixed(1) : '--';
             document.getElementById('max-temp').textContent = 
                 currentState.max_temp ? currentState.max_temp.toFixed(1) : '--';
+
+            // Outdoor temperature (informational). Shown only when an outdoor
+            // sensor is configured; renders "--" when the reading is stale.
+            const outdoorCard = document.getElementById('outdoor-card');
+            const outdoorEl = document.getElementById('outdoor-temp');
+            if (currentState.outdoor_configured) {
+                outdoorCard.style.display = '';
+                outdoorEl.textContent = typeof currentState.outdoor_temp === 'number'
+                    ? currentState.outdoor_temp.toFixed(1) + '°F'
+                    : '--';
+            } else {
+                outdoorCard.style.display = 'none';
+            }
             
             // HVAC status
             const statusEl = document.getElementById('hvac-status');
@@ -497,7 +515,7 @@
                         maxTemp = Math.max(maxTemp, v);
                     });
                 }
-                ['set_temp_cool', 'set_temp_heat'].forEach(key => {
+                ['set_temp_cool', 'set_temp_heat', 'outdoor'].forEach(key => {
                     if (typeof h[key] === 'number') {
                         minTemp = Math.min(minTemp, h[key]);
                         maxTemp = Math.max(maxTemp, h[key]);
@@ -563,6 +581,36 @@
                 else ctx.lineTo(x, y);
             });
             ctx.stroke();
+
+            // Draw the informational outdoor temperature line (dashed, so it
+            // is visually distinct from in-home temperatures). Only rendered
+            // when at least one history sample carries an outdoor reading.
+            const OUTDOOR_COLOR = '#4DD0E1';
+            if (history.some(h => typeof h.outdoor === 'number')) {
+                ctx.save();
+                ctx.strokeStyle = OUTDOOR_COLOR;
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath();
+                let started = false;
+                history.forEach((h, i) => {
+                    const val = h.outdoor;
+                    if (typeof val !== 'number') {
+                        started = false;  // break line if outdoor missing
+                        return;
+                    }
+                    const x = xAt(i);
+                    const y = yAt(val);
+                    if (!started) {
+                        ctx.moveTo(x, y);
+                        started = true;
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.stroke();
+                ctx.restore();
+            }
 
             // Draw setpoint reference lines (dashed, so they are distinct
             // from sensor temperatures)
@@ -630,6 +678,9 @@
             addLegendItem('Average', '#2196F3', true);
             addLegendItem('Heat Setpoint', HEAT_SETPOINT_COLOR, true);
             addLegendItem('Cool Setpoint', COOL_SETPOINT_COLOR, true);
+            if (history.some(h => typeof h.outdoor === 'number')) {
+                addLegendItem('Outdoor', OUTDOOR_COLOR, false);
+            }
             sensorNames.forEach(name => addLegendItem(name, sensorColors[name], false));
         }
         

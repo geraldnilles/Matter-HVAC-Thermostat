@@ -51,6 +51,7 @@ VALID_FANS = {"auto", "on"}
 F_CURRENT_TEMP = "current_temp"
 F_MIN_TEMP = "min_temp"
 F_MAX_TEMP = "max_temp"
+F_OUTDOOR_TEMP = "outdoor_temp"
 F_HISTORY = "history.json"
 F_SYSTEM_MODE = "system_mode"
 F_FAN_MODE = "fan_mode"
@@ -116,6 +117,7 @@ class DemoSimulator:
 
         self.history = deque(maxlen=MAX_HISTORY)
         self._avg = self._min = self._max = 0.0
+        self._outdoor = round(self._ambient(self.now), 2)
 
         self._running = False
         self._thread = None
@@ -235,6 +237,7 @@ class DemoSimulator:
         prev_action = self.action
 
         self._apply_physics()
+        ambient = self._ambient(self.now)
 
         temps = [room.temp for room in self.rooms]
         avg = round(sum(temps) / len(temps), 2)
@@ -252,6 +255,7 @@ class DemoSimulator:
             "t": int(self.now),
             "avg": avg,
             "sensors": {room.name: room.temp for room in self.rooms},
+            "outdoor": round(ambient, 2),
             "set_temp_cool": self.cool,
             "set_temp_heat": self.heat,
             "hvac_action": prev_action,
@@ -260,6 +264,7 @@ class DemoSimulator:
         self.now += self.interval
 
         self._avg, self._min, self._max = avg, mn, mx
+        self._outdoor = round(ambient, 2)
 
         if write_ipc:
             self._write_ipc()
@@ -271,6 +276,7 @@ class DemoSimulator:
         write_scalar(d / F_CURRENT_TEMP, self._avg)
         write_scalar(d / F_MIN_TEMP, self._min)
         write_scalar(d / F_MAX_TEMP, self._max)
+        write_scalar(d / F_OUTDOOR_TEMP, self._outdoor)
         write_scalar(d / F_SYSTEM_MODE, self.mode)
         write_scalar(d / F_FAN_MODE, self.fan)
         write_scalar(d / F_SET_COOL, self.cool)

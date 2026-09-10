@@ -43,7 +43,8 @@ All shared state lives in `/run/thermostat/` (tmpfs). **Every write must be atom
 | `current_temp` | sensor | Average °F across all valid sensors |
 | `min_temp` | sensor | Coldest valid sensor °F — drives heating |
 | `max_temp` | sensor | Hottest valid sensor °F — drives cooling |
-| `history.json` | sensor | 24 h ring buffer, 1-min samples, `{"t": epoch, "avg": °F, "sensors": {name: °F}, "set_temp_cool": °F, "set_temp_heat": °F, "hvac_action": string}` (action + setpoints omitted when absent) |
+| `outdoor_temp` | sensor | Informational outdoor sensor °F (only when `outdoor_sensor` is configured; file is removed while the sensor is stale). **Never** folded into `current_temp`/`min_temp`/`max_temp` — excluded from HVAC control |
+| `history.json` | sensor | 24 h ring buffer, 1-min samples, `{"t": epoch, "avg": °F, "sensors": {name: °F}, "outdoor": °F, "set_temp_cool": °F, "set_temp_heat": °F, "hvac_action": string}` (outdoor/action/setpoints omitted when absent) |
 | `system_mode` | mqtt, web | `off` \| `cool` \| `heat` \| `auto` |
 | `fan_mode` | mqtt, web | `auto` \| `on` |
 | `set_temp_cool` | mqtt, web, control, schedule | Cooling setpoint °F |
@@ -68,6 +69,7 @@ Mutable, authoritative defaults live in `/etc/thermostat/defaults.json` (in the 
     "A4:C1:38:00:00:01": "Living Room",
     "A4:C1:38:00:00:02": "Bedroom"
   },
+  "outdoor_sensor": "",
   "mqtt": {
     "broker": "localhost",
     "port": 1883,
@@ -79,7 +81,7 @@ Mutable, authoritative defaults live in `/etc/thermostat/defaults.json` (in the 
 }
 ```
 
-The `sensors` map is the allowlist; only these MACs are ever decoded/processed. The `mqtt` object stores the broker host, port, optional username/password, the matterbridge-mqtt plugin base `topic`, and this device's `device_id` (the `<deviceId>` path segment in every published topic). The broker is **mosquitto** (default `localhost:1883`), the same broker the matterbridge-mqtt plugin subscribes to. Leave `username` / `password` as empty strings (`""`) for brokers that do not require authentication.
+The optional top-level `outdoor_sensor` key names **one** MAC address for a Govee sensor mounted outside the house. Its reading is collected for information only — it is never averaged with the room sensors and never feeds the control daemon (an empty string disables the feature). The `sensors` map is the allowlist; only these MACs are ever decoded/processed. The `mqtt` object stores the broker host, port, optional username/password, the matterbridge-mqtt plugin base `topic`, and this device's `device_id` (the `<deviceId>` path segment in every published topic). The broker is **mosquitto** (default `localhost:1883`), the same broker the matterbridge-mqtt plugin subscribes to. Leave `username` / `password` as empty strings (`""`) for brokers that do not require authentication.
 
 On system boot, the one-shot `thermostat-setup` service (`src/setup.py`) copies the scalar values (`system_mode`, `fan_mode`, `set_temp_cool`, `set_temp_heat`) present in `defaults.json` into the matching `/run/thermostat/` files. **Files that already exist are never overwritten** — state survives restarts, and an external backup/restore service may populate `/run/thermostat/` either before or after `thermostat-setup` runs without its values being clobbered.
 
@@ -89,14 +91,14 @@ On system boot, the one-shot `thermostat-setup` service (`src/setup.py`) copies 
 |---|---|
 | IPC paths, atomic write/read helpers, scalar+JSON readers/writers | `src/utils.py` — **read this first** |
 | Boot-time seeding of IPC from `defaults.json`; one-shot service | `src/setup.py` |
-| Govee H5075 BLE decoding, allowlist, rolling averages, aggregation, 24 h history, failure→failsafe | `src/sensor.py` |
+| Govee H5075 BLE decoding, allowlist, rolling averages, aggregation, informational outdoor sensor, 24 h history, failure→failsafe | `src/sensor.py` |
 | Hysteresis, mode logic, auto conflict resolution, 8 °F setpoint gap, 120 s dwell, 60 s startup delay, data failsafe | `src/control.py` |
 | Relay actuation (`gpioset`, libgpiod v1/v2 auto-detect), pin mapping, shutdown failsafe to OFF | `src/gpio.py` |
 | matterbridge-mqtt device protocol (retained config/state/subscribe, write handling) | `src/mqtt.py` |
 | Flask WebUI + REST API endpoints, history graph | `src/web.py`, `src/templates/index.html` |
 | Hardware-free canned-data simulator for the WebUI (local testing) | `src/demo.py` |
 | Timer-driven setpoint profile helper (one-shot, snap + atomic write) | `src/schedule.py` |
-| Default config: sensor MAC allowlist, initial modes/setpoints, MQTT broker + matterbridge topic/device_id | `config/defaults.json` |
+| Default config: sensor MAC allowlist, optional `outdoor_sensor`, initial modes/setpoints, MQTT broker + matterbridge topic/device_id | `config/defaults.json` |
 | systemd units and ordering (services + timers) | `systemd/*.service`, `systemd/*.timer` |
 | Install/packaging rules (`DESTDIR`/`PREFIX`/`SYSCONFDIR`/`UNITDIR`) | `Makefile` |
 | Python deps: `flask`, `paho-mqtt`, `bleak` | `requirements.txt` |
@@ -154,8 +156,9 @@ Data path: BLE advertisements → per-sensor rolling buffer → aggregation → 
   - `min_temp`: lowest valid reading across all sensors (drives heating).
   - `max_temp`: highest valid reading across all sensors (drives cooling).
 - **Partial failure:** if an allowlisted sensor goes stale it is excluded; operation continues while ≥ 1 sensor remains valid.
+- **Outdoor sensor (informational):** when `outdoor_sensor` is set, that MAC is decoded but kept in a *separate* buffer (and removed from the room allowlist, so it can never enter the aggregation). Its rolling average is written to `outdoor_temp` and stamped as the `outdoor` field on each `history.json` sample; it is cleared (file removed) when the sensor is stale. Room aggregation, failsafe, and HVAC control are completely unaffected. Works even during the total-room-failure failsafe, since the file is independent of `current_temp`.
 - **Total failure:** if *zero* sensors are valid, the daemon **deletes** the `current_temp` IPC file so the Control Daemon immediately sees missing sensor input and forces idle.
-- **24-hour history:** an in-RAM ring buffer sampled every 1 minute (`HISTORY_INTERVAL`), capped at `HISTORY_MAX_ENTRIES` (1440 = 24 h), persisted as `history.json`. Each entry stores Unix epoch `t`, `avg` °F (2 decimals), per-room `sensors` (each room's filtered 2-minute rolling average), and — when known — `set_temp_cool` / `set_temp_heat` / `hvac_action` so the WebUI can render setpoints and an action bar aligned with the chart.
+- **24-hour history:** an in-RAM ring buffer sampled every 1 minute (`HISTORY_INTERVAL`), capped at `HISTORY_MAX_ENTRIES` (1440 = 24 h), persisted as `history.json`. Each entry stores Unix epoch `t`, `avg` °F (2 decimals), per-room `sensors` (each room's filtered 2-minute rolling average), and — when known — the informational `outdoor` reading plus `set_temp_cool` / `set_temp_heat` / `hvac_action` so the WebUI can render setpoints, the outdoor line, and an action bar aligned with the chart.
 - **Scanner resilience:** restart BleakScanner whenever its D-Bus / BlueZ subscription silently stalls. Each 5-second loop tick compares wall-clock time to monotonic time; divergence over `CLOCK_JUMP_THRESHOLD` (10 s) signals an NTP step and restarts the scanner. If no advertisement arrives for `SCANNER_WATCHDOG_TIMEOUT` (45 s), the scanner is likewise restarted.
 
 ## Thermostat logic invariants (`src/control.py`)
@@ -198,8 +201,8 @@ Backup control interface (may write `system_mode`, `fan_mode`, `set_temp_cool`,
 `set_temp_heat` concurrently with MQTT). Flask runs with threaded request
 handling (`threaded=True`) and binds to `0.0.0.0:5000` in production.
 
-- `GET /` — HTML dashboard (auto-refresh 30 s) with live temp, mode/setpoint controls, 24 h history graph (room lines + bold average + dashed heat/cool setpoint lines) plus a horizontal HVAC action bar below it (color-coded heating/cooling/fan/idle segments on the same time scale), an "Estimated Energy Cost" card (client-side integration of per-action power draw over the last 24 h at $0.20/kWh, with a ×30 monthly projection; power model: idle 0 W, fan 400 W, heating 500 W, cooling 4000 W) and a "Current Room Temperatures" table at the bottom (each room's live temp from the most recent `history.json` sample whose `sensors` map contains per-room readings); setpoint controls use a single +/- button pair that adjusts heat and cool setpoints simultaneously
-- `GET /api/state` — full state as JSON (includes `history`)
+- `GET /` — HTML dashboard (auto-refresh 30 s) with live temp, mode/setpoint controls, 24 h history graph (room lines + bold average + dashed heat/cool setpoint lines) plus a horizontal HVAC action bar below it (color-coded heating/cooling/fan/idle segments on the same time scale), an "Estimated Energy Cost" card (client-side integration of per-action power draw over the last 24 h at $0.20/kWh, with a ×30 monthly projection; power model: idle 0 W, fan 400 W, heating 500 W, cooling 4000 W) and a "Current Room Temperatures" table at the bottom (each room's live temp from the most recent `history.json` sample whose `sensors` map contains per-room readings); setpoint controls use a single +/- button pair that adjusts heat and cool setpoints simultaneously. When an outdoor sensor is configured, an informational "Outdoor Temperature" card is shown (hidden otherwise) and the outdoor reading is drawn as a dashed line on the history graph; it is never part of the average line
+- `GET /api/state` — full state as JSON (includes `history`; adds `outdoor_temp` (nullable) and `outdoor_configured` (bool) for the informational outdoor sensor)
 - `POST /api/mode` — `{"mode": "off"|"cool"|"heat"|"auto"}`
 - `POST /api/fan` — `{"fan": "auto"|"on"}`
 - `POST /api/setpoint` — `{"type": "cool"|"heat", "value": <float>}` (single-setpoint override; retained for compatibility)
@@ -207,7 +210,7 @@ handling (`threaded=True`) and binds to `0.0.0.0:5000` in production.
 
 ### Local demo mode (no hardware)
 
-The WebUI can run in a fully local, hardware-free demo mode that feeds it canned sensor data. `src/demo.py` generates a realistic per-room temperature model, a populated 24 h history ring buffer, and a hysteresis/dwell-aware `hvac_action`, then keeps generating samples so the page auto-refresh feels live. Mode/fan/setpoint changes made in the UI are written to the demo data directory and picked up by the simulator on its next tick, so the dashboard is fully interactive.
+The WebUI can run in a fully local, hardware-free demo mode that feeds it canned sensor data. `src/demo.py` generates a realistic per-room temperature model, an outdoor temperature (the ambient curve is also written to `outdoor_temp` and the `outdoor` history field so the outdoor card/chart render in demo mode), a populated 24 h history ring buffer, and a hysteresis/dwell-aware `hvac_action`, then keeps generating samples so the page auto-refresh feels live. Mode/fan/setpoint changes made in the UI are written to the demo data directory and picked up by the simulator on its next tick, so the dashboard is fully interactive.
 
 ```bash
 cd /path/to/repo

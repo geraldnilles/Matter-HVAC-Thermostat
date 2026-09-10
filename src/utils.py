@@ -17,6 +17,7 @@ IPC_DIR = Path("/run/thermostat")
 CURRENT_TEMP_FILE = IPC_DIR / "current_temp"
 MIN_TEMP_FILE = IPC_DIR / "min_temp"
 MAX_TEMP_FILE = IPC_DIR / "max_temp"
+OUTDOOR_TEMP_FILE = IPC_DIR / "outdoor_temp"
 HISTORY_FILE = IPC_DIR / "history.json"
 SYSTEM_MODE_FILE = IPC_DIR / "system_mode"
 FAN_MODE_FILE = IPC_DIR / "fan_mode"
@@ -36,6 +37,57 @@ def round_degree(value: float) -> float:
     banker's round(), so e.g. 73.4 -> 73.0, 73.5 -> 74.0.
     """
     return math.floor(value + 0.5)
+
+
+def get_outdoor_sensor(config: dict) -> str | None:
+    """
+    Return the normalized MAC address of the configured outdoor sensor.
+
+    The outdoor sensor is an *informational* add-on: it is temperature data
+    collected from a single sensor mounted outside the house and is never
+    averaged with (or allowed to influence) the room sensors. It is therefore
+    configured as its own top-level ``outdoor_sensor`` key in ``defaults.json``
+    rather than inside the ``sensors`` allowlist.
+
+    Args:
+        config: Parsed ``defaults.json`` mapping.
+
+    Returns:
+        The sensor MAC address upper-cased (matching BLE ``device.address``
+        normalization), or ``None`` when unset/blank/invalid.
+    """
+    mac = config.get("outdoor_sensor")
+    if not isinstance(mac, str):
+        return None
+    mac = mac.strip().upper()
+    return mac or None
+
+
+def partition_sensors(config: dict) -> tuple[dict, str | None]:
+    """
+    Split ``defaults.json`` sensor config into room sensors and the outdoor one.
+
+    Room sensors (the ``sensors`` allowlist) are aggregated into the min/max/avg
+    used for HVAC control. The optional ``outdoor_sensor`` is informational and
+    must be kept out of that aggregation, so this helper returns it separately
+    and removes it from the room map if the same MAC appears in both.
+
+    Args:
+        config: Parsed ``defaults.json`` mapping.
+
+    Returns:
+        ``(room_sensors, outdoor_mac)`` where ``room_sensors`` maps an
+        upper-cased MAC to its display name and ``outdoor_mac`` is the
+        upper-cased outdoor MAC (or ``None`` when not configured).
+    """
+    room_sensors = {
+        str(mac).upper(): name
+        for mac, name in (config.get("sensors", {}) or {}).items()
+    }
+    outdoor_mac = get_outdoor_sensor(config)
+    if outdoor_mac:
+        room_sensors.pop(outdoor_mac, None)
+    return room_sensors, outdoor_mac
 
 
 def atomic_write(filepath: Path, content: str) -> None:
