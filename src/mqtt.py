@@ -19,10 +19,15 @@ controller attribute changes as
 
     { "ClusterName": { "attributeName": value } }
 
-This daemon registers a single `Thermostat` device (device type 769) and
-keeps the broker-replicated state in sync with the IPC files in
-/run/thermostat/. Attribute writes from Matter controllers (system mode,
-occupied setpoints) are converted back and written to IPC.
+This daemon registers three Matter devices and keeps their broker-replicated
+state in sync with the IPC files in /run/thermostat/:
+
+  * `Thermostat` (device type 769)         -> temperature, setpoints, modes
+  * `Fan`        (device type 43)          -> fan_mode auto/on via FanControl
+  * `TemperatureSensor` (device type 770)  -> outdoor_temp (read-only)
+
+Attribute writes from Matter controllers (system mode, occupied setpoints,
+fan mode) are converted back and written to IPC.
 """
 
 import json
@@ -109,11 +114,46 @@ def _load_mqtt_config() -> tuple:
     DEVICE_ID,
 ) = _load_mqtt_config()
 
+# Devices announced over MQTT. The thermostat keeps the configured DEVICE_ID;
+# the fan and outdoor temperature sensor derive their ids from it so a single
+# `mqtt.device_id` selects the whole set (matterbridge-mqtt allows '-' in ids).
+FAN_DEVICE_ID = f"{DEVICE_ID}-fan"
+TEMP_SENSOR_DEVICE_ID = f"{DEVICE_ID}-outdoor"
+
+
+def device_topics(device_id: str) -> dict:
+    """Return the four matterbridge-mqtt topics for one device id."""
+    base = f"{MQTT_BASE_TOPIC}/{device_id}"
+    return {
+        "config": f"{base}/config/root",
+        "state": f"{base}/state/root",
+        "subscribe": f"{base}/subscribe/root",
+        "write": f"{base}/write/root",
+    }
+
+
 # Topics (matterbridge-mqtt layout: <topic>/<deviceId>/<subTopic>/<endpointName>)
-TOPIC_CONFIG = f"{MQTT_BASE_TOPIC}/{DEVICE_ID}/config/root"
-TOPIC_STATE = f"{MQTT_BASE_TOPIC}/{DEVICE_ID}/state/root"
-TOPIC_SUBSCRIBE = f"{MQTT_BASE_TOPIC}/{DEVICE_ID}/subscribe/root"
-TOPIC_WRITE = f"{MQTT_BASE_TOPIC}/{DEVICE_ID}/write/root"
+_THERMOSTAT_TOPICS = device_topics(DEVICE_ID)
+TOPIC_CONFIG = _THERMOSTAT_TOPICS["config"]
+TOPIC_STATE = _THERMOSTAT_TOPICS["state"]
+TOPIC_SUBSCRIBE = _THERMOSTAT_TOPICS["subscribe"]
+TOPIC_WRITE = _THERMOSTAT_TOPICS["write"]
+
+_FAN_TOPICS = device_topics(FAN_DEVICE_ID)
+FAN_TOPIC_CONFIG = _FAN_TOPICS["config"]
+FAN_TOPIC_STATE = _FAN_TOPICS["state"]
+FAN_TOPIC_SUBSCRIBE = _FAN_TOPICS["subscribe"]
+FAN_TOPIC_WRITE = _FAN_TOPICS["write"]
+
+_TEMP_TOPICS = device_topics(TEMP_SENSOR_DEVICE_ID)
+TEMP_TOPIC_CONFIG = _TEMP_TOPICS["config"]
+TEMP_TOPIC_STATE = _TEMP_TOPICS["state"]
+TEMP_TOPIC_SUBSCRIBE = _TEMP_TOPICS["subscribe"]
+TEMP_TOPIC_WRITE = _TEMP_TOPICS["write"]
+
+# Write topics the daemon subscribes to (devices that accept controller
+# writes). The temperature sensor is read-only and is never added here.
+WRITE_TOPICS = [TOPIC_WRITE, FAN_TOPIC_WRITE]
 
 POLL_INTERVAL = 5.0  # seconds
 
@@ -177,6 +217,49 @@ MIN_SETPOINT_DEAD_BAND_TENTHS_C = 44
 # Attributes the daemon wants pushed back on the plugin's write topic.
 SUBSCRIBED_THERMOSTAT_ATTRIBUTES = ["systemMode", "occupiedHeatingSetpoint", "occupiedCoolingSetpoint"]
 
+# ---------------------------------------------------------------------------
+# Matter FanControl cluster (id 514) constants, for the separate Fan device.
+#
+# IPC `fan_mode` has exactly two states: "auto" (system controls the fan) and
+# "on" (fan forced on). They map onto the only two FanMode values admitted by
+# a FanModeSequence of OffHigh (5):
+#     FanMode Off  = 0  <- "auto"
+#     FanMode High = 3  <- "on"
+# matterbridge installs FanControl with the Auto and Step features
+# (MatterbridgeFanControlServer.with('Auto', 'Step')); with an OffHigh
+# sequence the server rejects every other FanMode with a ConstraintError
+# before a write ever reaches our topic, so only 0/3 are handled here.
+# ---------------------------------------------------------------------------
+
+# Device type "Fan" (id 43).
+DEVICE_TYPE_FAN = "Fan"
+
+# Cluster name as used in config/state/subscribe/write payloads.
+CLUSTER_FAN_CONTROL = "FanControl"
+
+# FanModeSequenceEnum: OffHigh=5 (only FanMode Off/High are selectable).
+FAN_MODE_SEQUENCE_OFF_HIGH = 5
+
+# FanModeEnum: Off=0, High=3.
+FAN_MODE_TO_MATTER = {"auto": 0, "on": 3}
+FAN_MODE_FROM_MATTER = {v: k for k, v in FAN_MODE_TO_MATTER.items()}
+
+# Attributes the daemon wants pushed back on the plugin's write topic.
+SUBSCRIBED_FAN_ATTRIBUTES = ["fanMode"]
+
+# ---------------------------------------------------------------------------
+# Matter TemperatureMeasurement cluster (id 0x402) constants, for the separate
+# outdoor Temperature Sensor device. MeasuredValue is int16 in hundredths of a
+# degree Celsius (reusing fahrenheit_to_matter); its Min/MaxMeasuredValue are
+# nullable, so the plugin's automatic cluster creation accepts them as null.
+# ---------------------------------------------------------------------------
+
+# Device type "TemperatureSensor" (id 770).
+DEVICE_TYPE_TEMPERATURE_SENSOR = "TemperatureSensor"
+
+# Cluster name as used in state payloads.
+CLUSTER_TEMPERATURE_MEASUREMENT = "TemperatureMeasurement"
+
 
 def fahrenheit_to_matter(value: float) -> int:
     """
@@ -217,6 +300,8 @@ class MqttDaemon:
         # state is only published from the main loop and (re)connect, and a
         # duplicate publish from that narrow window would be idempotent.
         self._last_state_json = None
+        self._last_fan_state_json = None
+        self._last_sensor_state_json = None
 
         # Setup signal handlers
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -241,10 +326,20 @@ class MqttDaemon:
             # Declare which attribute changes we want forwarded back.
             self._publish_subscribe()
 
+            # Register the Fan device (separate Matter endpoint).
+            self._publish_fan_config()
+            self._publish_fan_subscribe()
+
+            # Register the outdoor temperature sensor (read-only endpoint).
+            self._publish_sensor_config()
+
             # Publish current state and subscribe to controller writes.
             self._publish_state()
-            self.client.subscribe(TOPIC_WRITE, qos=PUBLISH_QOS)
-            print(f"Subscribed to write topic: {TOPIC_WRITE}")
+            self._publish_fan_state()
+            self._publish_sensor_state()
+            for topic in WRITE_TOPICS:
+                self.client.subscribe(topic, qos=PUBLISH_QOS)
+                print(f"Subscribed to write topic: {topic}")
         else:
             print(f"Failed to connect to MQTT broker, return code: {rc}")
 
@@ -353,6 +448,118 @@ class MqttDaemon:
         self._last_state_json = payload
         self.client.publish(TOPIC_STATE, payload, qos=PUBLISH_QOS, retain=True)
 
+    # ---------------- Fan device payloads ---------------- #
+
+    def _publish_fan_config(self):
+        """
+        Publish the retained `config` message for the Fan device.
+
+        FanControl's mandatory attributes have no schema default (matter.js
+        error 135), so `fanMode` and `fanModeSequence` are set explicitly.
+        FanModeSequence OffHigh limits the selectable modes to Off/High,
+        matching the two-state IPC `fan_mode` file.
+        """
+        config_payload = {
+            "deviceTypes": [DEVICE_TYPE_FAN],
+            "clusters": {
+                CLUSTER_BASIC_INFORMATION: {
+                    "nodeLabel": "HVAC Fan",
+                    "serialNumber": FAN_DEVICE_ID,
+                    "productName": "HVAC Fan",
+                    "vendorName": "Matterbridge",
+                },
+                CLUSTER_FAN_CONTROL: {
+                    "fanMode": FAN_MODE_TO_MATTER["auto"],
+                    "fanModeSequence": FAN_MODE_SEQUENCE_OFF_HIGH,
+                },
+            },
+        }
+        self.client.publish(FAN_TOPIC_CONFIG, json.dumps(config_payload), qos=PUBLISH_QOS, retain=True)
+        print(f"Published fan config to {FAN_TOPIC_CONFIG}")
+
+    def _publish_fan_subscribe(self):
+        """Publish the retained `subscribe` declaration for the Fan device."""
+        subscribe_payload = {CLUSTER_FAN_CONTROL: list(SUBSCRIBED_FAN_ATTRIBUTES)}
+        self.client.publish(FAN_TOPIC_SUBSCRIBE, json.dumps(subscribe_payload), qos=PUBLISH_QOS, retain=True)
+        print(f"Published fan subscribe declaration to {FAN_TOPIC_SUBSCRIBE}")
+
+    def _build_fan_state(self) -> dict:
+        """Build the FanControl `state` payload from the IPC `fan_mode` file."""
+        fan_mode = read_file(FAN_MODE_FILE, default="auto")
+        return {CLUSTER_FAN_CONTROL: {"fanMode": FAN_MODE_TO_MATTER.get(fan_mode, 0)}}
+
+    def _publish_fan_state(self, force: bool = False):
+        """
+        Read IPC and publish the retained FanControl `state` payload.
+
+        Identical payloads are skipped unless `force` is set (same echo-loop
+        suppression rationale as `_publish_state`).
+        """
+        state = self._build_fan_state()
+        payload = json.dumps(state)
+        if not force and payload == self._last_fan_state_json:
+            return
+        self._last_fan_state_json = payload
+        self.client.publish(FAN_TOPIC_STATE, payload, qos=PUBLISH_QOS, retain=True)
+
+    # ---------------- Temperature Sensor device payloads ---------------- #
+
+    def _publish_sensor_config(self):
+        """
+        Publish the retained `config` message for the outdoor temperature sensor.
+
+        TemperatureMeasurement is deliberately absent: its mandatory
+        MeasuredValue/Min/Max attributes are nullable, so the plugin's
+        `addRequiredClusters` creates the cluster with valid null defaults and
+        the retained `state` message fills in the live value.
+        """
+        config_payload = {
+            "deviceTypes": [DEVICE_TYPE_TEMPERATURE_SENSOR],
+            "clusters": {
+                CLUSTER_BASIC_INFORMATION: {
+                    "nodeLabel": "Outdoor Temperature",
+                    "serialNumber": TEMP_SENSOR_DEVICE_ID,
+                    "productName": "Outdoor Temperature",
+                    "vendorName": "Matterbridge",
+                },
+            },
+        }
+        self.client.publish(TEMP_TOPIC_CONFIG, json.dumps(config_payload), qos=PUBLISH_QOS, retain=True)
+        print(f"Published temperature sensor config to {TEMP_TOPIC_CONFIG}")
+
+    def _build_sensor_state(self):
+        """
+        Build the TemperatureMeasurement `state` payload, or None if unknown.
+
+        Returns None when the outdoor sensor has not reported a reading, so the
+        daemon publishes nothing (rather than a null `measuredValue`).
+        """
+        outdoor = read_float(OUTDOOR_TEMP_FILE)
+        if outdoor is None:
+            return None
+        return {
+            CLUSTER_TEMPERATURE_MEASUREMENT: {
+                "measuredValue": fahrenheit_to_matter(outdoor),
+            }
+        }
+
+    def _publish_sensor_state(self, force: bool = False):
+        """
+        Read IPC and publish the retained TemperatureMeasurement `state`.
+
+        Does nothing when no outdoor reading is available. Identical payloads
+        are skipped unless `force` is set (same echo-loop suppression as the
+        other devices).
+        """
+        state = self._build_sensor_state()
+        if state is None:
+            return
+        payload = json.dumps(state)
+        if not force and payload == self._last_sensor_state_json:
+            return
+        self._last_sensor_state_json = payload
+        self.client.publish(TEMP_TOPIC_STATE, payload, qos=PUBLISH_QOS, retain=True)
+
     # ---------------- writes from Matter controllers ---------------- #
 
     def _on_message(self, client, userdata, msg):
@@ -360,7 +567,7 @@ class MqttDaemon:
         topic = msg.topic
         payload = msg.payload.decode("utf-8")
 
-        if topic != TOPIC_WRITE:
+        if topic not in WRITE_TOPICS:
             print(f"Ignoring message on unexpected topic: {topic} = {payload}")
             return
         if not payload.strip():
@@ -376,6 +583,17 @@ class MqttDaemon:
             return
         if not isinstance(message, dict):
             print(f"Error: write payload is not an object: {payload}")
+            return
+
+        if topic == FAN_TOPIC_WRITE:
+            attrs = message.get(CLUSTER_FAN_CONTROL)
+            if attrs is None:
+                print(f"Ignoring write for unsupported cluster(s): {sorted(message)}")
+                return
+            try:
+                self._apply_fan_attributes(attrs)
+            except (TypeError, ValueError) as e:
+                print(f"Error processing write: {e}")
             return
 
         attrs = message.get(CLUSTER_THERMOSTAT)
@@ -428,6 +646,29 @@ class MqttDaemon:
             else:
                 print(f"Ignoring unsupported attribute write: {attr} = {value!r}")
 
+    def _apply_fan_attributes(self, attrs):
+        """
+        Apply forwarded FanControl attribute changes to the IPC files.
+
+        Only `fanMode` is handled: a FanModeSequence of OffHigh admits just
+        Off(0) and High(3), which map to the two-state IPC `fan_mode` file.
+        Any other value is logged and skipped; the plugin's FanControl server
+        normally rejects out-of-sequence modes before they reach this topic.
+        """
+        if not isinstance(attrs, dict):
+            print(f"Error: '{CLUSTER_FAN_CONTROL}' write payload is not an object: {attrs!r}")
+            return
+
+        for attr, value in attrs.items():
+            if attr == "fanMode":
+                fan_mode = FAN_MODE_FROM_MATTER.get(value)
+                if fan_mode is None:
+                    print(f"Ignoring unsupported fanMode value: {value!r}")
+                    continue
+                write_scalar(FAN_MODE_FILE, fan_mode)
+            else:
+                print(f"Ignoring unsupported attribute write: {attr} = {value!r}")
+
     # ---------------- main loop ---------------- #
 
     def run(self):
@@ -441,6 +682,8 @@ class MqttDaemon:
             while self.running:
                 time.sleep(POLL_INTERVAL)
                 self._publish_state()
+                self._publish_fan_state()
+                self._publish_sensor_state()
 
         except Exception as e:
             print(f"MQTT error: {e}", file=sys.stderr)

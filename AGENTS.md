@@ -28,7 +28,7 @@ distinct systemd services for sensing, decision-making, actuation, and UI.
 | 2 | `thermostat-sensor` | BLE scan + aggregation; writes temps + 24 h history; `After=thermostat-setup bluetooth.target time-sync.target` | `systemd/thermostat-sensor.service` |
 | 3 | `thermostat-control` | The "brain"; thermostat logic, hysteresis, safety timers; writes `hvac_action` | `systemd/thermostat-control.service` |
 | 4 | `thermostat-gpio` | The "muscle"; reads `hvac_action`, drives relays via `gpioset`; extra 60 s boot delay (`ExecStartPre`) | `systemd/thermostat-gpio.service` |
-| 5 | `thermostat-mqtt` | matterbridge-mqtt device bridge; hosts the Matter Thermostat via the plugin | `systemd/thermostat-mqtt.service` |
+| 5 | `thermostat-mqtt` | matterbridge-mqtt device bridge; hosts the Matter Thermostat, Fan and outdoor TemperatureSensor via the plugin | `systemd/thermostat-mqtt.service` |
 | 5 | `thermostat-web` | Flask WebUI + REST API on `0.0.0.0:5000` | `systemd/thermostat-web.service` |
 | 6 | `thermostat-schedule` | Timer-driven setpoint profiles (6am / 11pm) | `systemd/thermostat-schedule-*.service` + `*.timer` |
 
@@ -94,7 +94,7 @@ On system boot, the one-shot `thermostat-setup` service (`src/setup.py`) copies 
 | Govee H5075 BLE decoding, allowlist, rolling averages, aggregation, informational outdoor sensor, 24 h history, failure→failsafe | `src/sensor.py` |
 | Hysteresis, mode logic, auto conflict resolution, 8 °F setpoint gap, 120 s dwell, 60 s startup delay, data failsafe | `src/control.py` |
 | Relay actuation (`gpioset`, libgpiod v1/v2 auto-detect), pin mapping, shutdown failsafe to OFF | `src/gpio.py` |
-| matterbridge-mqtt device protocol (retained config/state/subscribe, write handling) | `src/mqtt.py` |
+| matterbridge-mqtt device protocol (retained config/state/subscribe, write handling) for 3 devices: Thermostat, Fan, outdoor TemperatureSensor | `src/mqtt.py` |
 | Flask WebUI + REST API endpoints, history graph | `src/web.py`, `src/templates/index.html` |
 | Hardware-free canned-data simulator for the WebUI (local testing) | `src/demo.py` |
 | Timer-driven setpoint profile helper (one-shot, snap + atomic write) | `src/schedule.py` |
@@ -178,22 +178,40 @@ Data path: BLE advertisements → per-sensor rolling buffer → aggregation → 
 
 ## MQTT interface (`src/mqtt.py`)
 
-Targets [matterbridge](https://github.com/Luligu/matterbridge) + the [`matterbridge-mqtt`](https://www.npmjs.com/package/matterbridge-mqtt) plugin (mosquitto broker). The daemon registers a Matter `Thermostat` device (type 769) via the plugin's device protocol — **all** device announcements are **retained** QoS 2 on `<topic>/<deviceId>/...` (endpoint `root`), and publishing an empty retained `config` payload deletes the device registration.
+Targets [matterbridge](https://github.com/Luligu/matterbridge) + the [`matterbridge-mqtt`](https://www.npmjs.com/package/matterbridge-mqtt) plugin (mosquitto broker). The daemon registers **three** Matter devices via the plugin's device protocol — **all** device announcements are **retained** QoS 2 on `<topic>/<deviceId>/...` (endpoint `root`), and publishing an empty retained `config` payload deletes a device registration.
+
+| Device | Matter device type | `deviceId` | IPC source |
+|---|---|---|---|
+| Thermostat | `Thermostat` (769) | `<device_id>` (config `mqtt.device_id`, default `thermostat`) | `system_mode`, `fan_mode`, `set_temp_*`, `current_temp`, `outdoor_temp`, `hvac_action` |
+| Fan | `Fan` (43) | `<device_id>-fan` | `fan_mode` (`auto` ⇄ `on`) |
+| Temperature Sensor | `TemperatureSensor` (770) | `<device_id>-outdoor` | `outdoor_temp` (read-only) |
+
+Fan and sensor ids are derived from `mqtt.device_id`, so a single configured id selects the whole set (`matterbridge-mqtt` allows `-` in ids).
 
 Topics:
 
 | Topic | Direction | Payload |
 |---|---|---|
-| `<topic>/<device_id>/config/root` | out, retained | Device registration: `{"deviceTypes": ["Thermostat"], "clusters": {...fixed attrs...}}` |
+| `<topic>/<device_id>/config/root` | out, retained | Thermostat registration: `{"deviceTypes": ["Thermostat"], "clusters": {...fixed attrs...}}` |
 | `<topic>/<device_id>/state/root` | out (5 s), retained | Current attribute values: `{"Thermostat": {...}}` |
 | `<topic>/<device_id>/subscribe/root` | out, retained | `{"Thermostat": ["systemMode", "occupiedHeatingSetpoint", "occupiedCoolingSetpoint"]}` |
 | `<topic>/<device_id>/write/root` | in | Plugin-forwarded controller writes: `{"Thermostat": {"systemMode": 4, ...}}` |
+| `<topic>/<device_id>-fan/config/root` | out, retained | Fan registration: `{"deviceTypes": ["Fan"], "clusters": {"FanControl": {"fanMode": 0, "fanModeSequence": 5}}}` |
+| `<topic>/<device_id>-fan/state/root` | out (5 s), retained | `{"FanControl": {"fanMode": 0 \| 3}}` |
+| `<topic>/<device_id>-fan/subscribe/root` | out, retained | `{"FanControl": ["fanMode"]}` |
+| `<topic>/<device_id>-fan/write/root` | in | `{"FanControl": {"fanMode": 0 \| 3}}` |
+| `<topic>/<device_id>-outdoor/config/root` | out, retained | Temperature-sensor registration: `{"deviceTypes": ["TemperatureSensor"], "clusters": {...}}` |
+| `<topic>/<device_id>-outdoor/state/root` | out (5 s), retained | `{"TemperatureMeasurement": {"measuredValue": <hundredths °C>}}` |
+
+**Fan (`FanControl`, cluster 514):** the Fan device exposes `FanControl` with `fanModeSequence` = `OffHigh` (5), so only `FanMode` `Off` (0) and `High` (3) are valid — matterbridge's FanControl server rejects any other mode with a `ConstraintError` before the write reaches the topic. IPC `fan_mode` maps `auto` → `Off` (0) and `on` → `High` (3); inbound writes map `0` → `auto`, `3` → `on`, anything else is logged and ignored. State is `{"FanControl": {"fanMode": ...}}` (the server derives `percentSetting`). Note the `Fan` device type is separate from the Thermostat; the Thermostat device does **not** expose a `FanControl` cluster (only its `thermostatRunningState` `fan` bit).
+
+**Temperature Sensor (`TemperatureMeasurement`, cluster 0x402):** read-only, publishes `measuredValue` = `outdoor_temp` (°F) converted to hundredths of °C via `fahrenheit_to_matter()` (e.g. 72 °F → 2222). When `outdoor_temp` is missing (sensor unconfigured/stale) the daemon publishes nothing for this device (no retained `state`). The sensor's `write` topic is never subscribed. `TemperatureMeasurement` is not listed in the sensor `config`: the plugin auto-creates it with valid null `measuredValue`/`minMeasuredValue`/`maxMeasuredValue` defaults, which the retained `state` then fills.
 
 **Attribute mapping (verified against matterbridge-mqtt's `clusters.json` and matterbridge's `MatterbridgeThermostatServer` registry entry, which installs the Thermostat behavior with `AutoMode`, `Heating`, `Cooling` features):** temperatures are **hundredths of °C** (`localTemperature` for the indoor average, `outdoorTemperature` for the optional outdoor sensor when present); `systemMode` uses `SystemModeEnum` (`off`/`auto`/`cool`/`heat` → `0`/`1`/`3`/`4`); `thermostatRunningState` is a `RelayStateBitmap` object (`heat`/`cool`/`fan` camelCase bits mirroring `hvac_action`, plus `fan` when `fan_mode` is `on`); `thermostatRunningMode` is `Off`=0/`Cool`=3/`Heat`=4; `controlSequenceOfOperation` = `CoolingAndHeating` = 4; `minSetpointDeadBand` is in tenths of °C (44 ≈ 8 °F). Fixed attributes (limits 60–80 °F, dead band, control sequence) live in the retained `config`; live values go in `state`. Inbound setpoints are converted back to whole °F via `utils.round_degree()`; unknown attributes/clusters are logged and ignored. Identical consecutive state payloads are suppressed (echo loop prevention, since republished state is forwarded back to `write`).
 
-MQTT config comes from the `mqtt` section of `defaults.json` (broker, port, username/password, `topic`, `device_id`); falls back to `localhost:1883`, base topic `matterbridge`, device id `thermostat`. On connect: publishes config + subscribe + initial state (all retained), subscribes the `write` topic.
+MQTT config comes from the `mqtt` section of `defaults.json` (broker, port, username/password, `topic`, `device_id`); falls back to `localhost:1883`, base topic `matterbridge`, device id `thermostat`. On connect: publishes each device's `config` (+ Thermostat/Fan `subscribe`) and initial `state` (all retained), then subscribes the Thermostat and Fan `write` topics (never the read-only sensor's).
 
-> **Do NOT expose a Matter `FanControl` cluster** — the thermostat is registered as a plain `Thermostat` device type. Fan control remains available through the WebUI and the `fan_mode` IPC file; the `fan` bit of `thermostatRunningState` still reflects fan activity. See the MQTT interface section above.
+> **The `Thermostat` device does NOT expose a Matter `FanControl` cluster** — it is registered as a plain `Thermostat` device type (only its `thermostatRunningState` `fan` bit reflects fan activity). Fan control as a native Matter endpoint lives on the **separate `Fan` device** (`<device_id>-fan`, see above). Fan control also remains available through the WebUI and the `fan_mode` IPC file.
 
 ## WebUI REST API (`src/web.py`)
 

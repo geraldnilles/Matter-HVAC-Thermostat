@@ -83,6 +83,8 @@ class MatterbridgeProtocolTest(unittest.TestCase):
         # __init__ is bypassed (object.__new__), so wire up the internals that
         # matter to the methods under test.
         self.daemon._last_state_json = None
+        self.daemon._last_fan_state_json = None
+        self.daemon._last_sensor_state_json = None
 
         # Baseline state: off/auto, cool=74, heat=70 (unchanged unless a test writes them)
         utils.write_scalar(utils.SYSTEM_MODE_FILE, "off")
@@ -364,7 +366,10 @@ class MatterbridgeProtocolTest(unittest.TestCase):
         topics = [t for t, _p, _q, _r in self.daemon.client.published]
         for topic in (self.mqtt.TOPIC_CONFIG, self.mqtt.TOPIC_STATE, self.mqtt.TOPIC_SUBSCRIBE):
             self.assertIn(topic, topics)
-        self.assertEqual(self.daemon.client.subscribed, [(self.mqtt.TOPIC_WRITE, self.mqtt.PUBLISH_QOS)])
+        subscribed_topics = {t for t, _q in self.daemon.client.subscribed}
+        self.assertIn(self.mqtt.TOPIC_WRITE, subscribed_topics)
+        for _t, qos in self.daemon.client.subscribed:
+            self.assertEqual(qos, self.mqtt.PUBLISH_QOS)
         # All device announcements must be retained so matterbridge can pick
         # them up when (re)starting after us.
         for topic, _payload, _qos, retain in self.daemon.client.published:
@@ -375,6 +380,341 @@ class MatterbridgeProtocolTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.daemon._on_connect(self.daemon.client, None, {}, 5)
         self.assertEqual(self.daemon.client.published, [])
+
+
+class FanDeviceTest(unittest.TestCase):
+    """The separate Fan Matter endpoint published from src/mqtt.py."""
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp(prefix="thermostat-mqtt-fan-tests-"))
+        utils.IPC_DIR = self.tmpdir
+        for attr, fname in _FILE_NAMES.items():
+            setattr(utils, attr, self.tmpdir / fname)
+
+        self.mqtt = _load_mqtt()
+        for attr, fname in _FILE_NAMES.items():
+            setattr(self.mqtt, attr, self.tmpdir / fname)
+
+        self.daemon = object.__new__(self.mqtt.MqttDaemon)
+        self.daemon.client = FakeClient()
+        self.daemon.running = True
+        self.daemon._last_state_json = None
+        self.daemon._last_fan_state_json = None
+        self.daemon._last_sensor_state_json = None
+
+        # Baseline: off/auto, cool=74, heat=70.
+        utils.write_scalar(utils.SYSTEM_MODE_FILE, "off")
+        utils.write_scalar(utils.FAN_MODE_FILE, "auto")
+        utils.write_scalar(utils.SET_TEMP_COOL_FILE, 74.0)
+        utils.write_scalar(utils.SET_TEMP_HEAT_FILE, 70.0)
+
+    def tearDown(self):
+        utils.IPC_DIR = _ORIGINAL_IPC_DIR
+        for attr, fname in _FILE_NAMES.items():
+            setattr(utils, attr, _ORIGINAL_IPC_DIR / fname)
+        _load_mqtt()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def set_fan_mode(self, mode):
+        utils.write_scalar(utils.FAN_MODE_FILE, mode)
+
+    def send_write(self, payload, topic=None):
+        msg = type("Msg", (), {"topic": topic or self.mqtt.FAN_TOPIC_WRITE, "payload": payload.encode()})()
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            self.daemon._on_message(self.daemon.client, None, msg)
+        return out.getvalue(), err.getvalue()
+
+    def fan_state(self, force=True):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.daemon._publish_fan_state(force=force)
+        topic, payload, qos, retain = self.daemon.client.published[-1]
+        return topic, json.loads(payload), qos, retain
+
+    # ---------------- device id / topics ---------------- #
+    def test_fan_device_id_derived_from_device_id(self):
+        self.assertEqual(self.mqtt.FAN_DEVICE_ID, f"{self.mqtt.DEVICE_ID}-fan")
+        self.assertTrue(self.mqtt.FAN_TOPIC_WRITE.endswith(f"/{self.mqtt.FAN_DEVICE_ID}/write/root"))
+
+    # ---------------- config payload ---------------- #
+    def test_fan_config_advertises_fan_device_type(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.daemon._publish_fan_config()
+        topic, payload, qos, retain = self.daemon.client.published[-1]
+        self.assertEqual(topic, self.mqtt.FAN_TOPIC_CONFIG)
+        self.assertTrue(retain)
+        self.assertEqual(qos, self.mqtt.PUBLISH_QOS)
+        cfg = json.loads(payload)
+        self.assertEqual(cfg["deviceTypes"], ["Fan"])
+        self.assertIn(self.mqtt.CLUSTER_FAN_CONTROL, cfg["clusters"])
+        self.assertIn(self.mqtt.CLUSTER_BASIC_INFORMATION, cfg["clusters"])
+
+    def test_fan_config_sets_mandatory_fan_control_attributes(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_fan_config()
+        cfg = json.loads(self.daemon.client.published[-1][1])
+        fan = cfg["clusters"][self.mqtt.CLUSTER_FAN_CONTROL]
+        self.assertEqual(fan["fanMode"], 0)  # Off
+        self.assertEqual(fan["fanModeSequence"], 5)  # OffHigh
+
+    def test_fan_subscribe_declaration(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_fan_subscribe()
+        topic, payload, qos, retain = self.daemon.client.published[-1]
+        self.assertEqual(topic, self.mqtt.FAN_TOPIC_SUBSCRIBE)
+        self.assertTrue(retain)
+        self.assertEqual(json.loads(payload), {"FanControl": ["fanMode"]})
+
+    # ---------------- state payload ---------------- #
+    def test_fan_state_auto_maps_to_off(self):
+        self.set_fan_mode("auto")
+        topic, state, qos, retain = self.fan_state()
+        self.assertEqual(topic, self.mqtt.FAN_TOPIC_STATE)
+        self.assertTrue(retain)
+        self.assertEqual(qos, self.mqtt.PUBLISH_QOS)
+        self.assertEqual(state, {"FanControl": {"fanMode": 0}})
+
+    def test_fan_state_on_maps_to_high(self):
+        self.set_fan_mode("on")
+        _topic, state, _qos, _retain = self.fan_state()
+        self.assertEqual(state, {"FanControl": {"fanMode": 3}})
+
+    def test_fan_state_unknown_ipc_value_defaults_to_off(self):
+        self.set_fan_mode("bogus")
+        _topic, state, _qos, _retain = self.fan_state()
+        self.assertEqual(state, {"FanControl": {"fanMode": 0}})
+
+    # ---------------- echo suppression ---------------- #
+    def test_identical_fan_state_not_republished(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_fan_state(force=True)
+        count = len(self.daemon.client.published)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_fan_state()
+        self.assertEqual(len(self.daemon.client.published), count)
+
+    def test_changed_fan_state_republished(self):
+        self.set_fan_mode("auto")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_fan_state(force=True)
+        count = len(self.daemon.client.published)
+        self.set_fan_mode("on")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_fan_state()
+        self.assertEqual(len(self.daemon.client.published), count + 1)
+        payload = json.loads(self.daemon.client.published[-1][1])
+        self.assertEqual(payload["FanControl"]["fanMode"], 3)
+
+    # ---------------- write handling ---------------- #
+    def test_write_fan_mode_off_sets_auto(self):
+        self.set_fan_mode("on")
+        _out, err = self.send_write(json.dumps({"FanControl": {"fanMode": 0}}))
+        self.assertEqual(utils.read_file(utils.FAN_MODE_FILE), "auto")
+        self.assertEqual(err, "")
+
+    def test_write_fan_mode_high_sets_on(self):
+        _out, err = self.send_write(json.dumps({"FanControl": {"fanMode": 3}}))
+        self.assertEqual(utils.read_file(utils.FAN_MODE_FILE), "on")
+        self.assertEqual(err, "")
+
+    def test_write_unsupported_fan_mode_ignored(self):
+        self.set_fan_mode("auto")
+        out, _err = self.send_write(json.dumps({"FanControl": {"fanMode": 1}}))
+        self.assertEqual(utils.read_file(utils.FAN_MODE_FILE), "auto")
+        self.assertIn("unsupported fanMode value", out)
+
+    def test_write_unknown_fan_attribute_ignored(self):
+        self.set_fan_mode("auto")
+        out, _err = self.send_write(json.dumps({"FanControl": {"percentSetting": 42}}))
+        self.assertEqual(utils.read_file(utils.FAN_MODE_FILE), "auto")
+        self.assertIn("unsupported attribute write", out)
+
+    def test_fan_write_other_cluster_ignored(self):
+        _out, _err = self.send_write(json.dumps({"Thermostat": {"systemMode": 4}}))
+        self.assertEqual(utils.read_file(utils.FAN_MODE_FILE), "auto")
+
+    def test_fan_write_does_not_trigger_immediate_state_publish(self):
+        before = len(self.daemon.client.published)
+        self.send_write(json.dumps({"FanControl": {"fanMode": 3}}))
+        self.assertEqual(utils.read_file(utils.FAN_MODE_FILE), "on")
+        topics = [t for t, *_ in self.daemon.client.published[before:]]
+        self.assertNotIn(self.mqtt.FAN_TOPIC_STATE, topics)
+
+    def test_fan_and_thermostat_write_topics_are_distinct(self):
+        # A thermostat-cluster write on the fan topic is ignored, and a fan
+        # write on the thermostat topic is ignored: dispatch is per-topic.
+        out, _err = self.send_write(
+            json.dumps({"Thermostat": {"systemMode": 4}}), topic=self.mqtt.FAN_TOPIC_WRITE
+        )
+        self.assertEqual(utils.read_file(utils.SYSTEM_MODE_FILE), "off")
+        self.assertIn("unsupported cluster", out)
+
+        self.set_fan_mode("auto")
+        out, _err = self.send_write(
+            json.dumps({"FanControl": {"fanMode": 3}}), topic=self.mqtt.TOPIC_WRITE
+        )
+        self.assertEqual(utils.read_file(utils.FAN_MODE_FILE), "auto")
+
+    # ---------------- connection wiring ---------------- #
+    def test_on_connect_publishes_fan_and_subscribes_fan_write_topic(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._on_connect(self.daemon.client, None, {}, 0)
+
+        topics = [t for t, _p, _q, _r in self.daemon.client.published]
+        for topic in (self.mqtt.FAN_TOPIC_CONFIG, self.mqtt.FAN_TOPIC_STATE, self.mqtt.FAN_TOPIC_SUBSCRIBE):
+            self.assertIn(topic, topics)
+        subscribed_topics = {t for t, _q in self.daemon.client.subscribed}
+        self.assertIn(self.mqtt.FAN_TOPIC_WRITE, subscribed_topics)
+
+    def test_run_loop_publishes_fan_state(self):
+        published = []
+        self.daemon._publish_state = lambda *a, **k: published.append("thermostat")
+        self.daemon._publish_fan_state = lambda *a, **k: published.append("fan")
+
+        state = {"ticks": 0}
+
+        def fake_sleep(_interval):
+            state["ticks"] += 1
+            if state["ticks"] >= 2:
+                self.daemon.running = False
+
+        mqtt_mod = self.mqtt
+        real_sleep = mqtt_mod.time.sleep
+        mqtt_mod.time.sleep = fake_sleep
+        self.daemon.client.connect = lambda *a, **k: None
+        self.daemon.client.loop_start = lambda *a, **k: None
+        try:
+            self.daemon.run()
+        finally:
+            mqtt_mod.time.sleep = real_sleep
+
+        self.assertIn("fan", published)
+
+
+class TemperatureSensorDeviceTest(unittest.TestCase):
+    """The separate outdoor TemperatureSensor Matter endpoint."""
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp(prefix="thermostat-mqtt-temp-tests-"))
+        utils.IPC_DIR = self.tmpdir
+        for attr, fname in _FILE_NAMES.items():
+            setattr(utils, attr, self.tmpdir / fname)
+
+        self.mqtt = _load_mqtt()
+        for attr, fname in _FILE_NAMES.items():
+            setattr(self.mqtt, attr, self.tmpdir / fname)
+
+        self.daemon = object.__new__(self.mqtt.MqttDaemon)
+        self.daemon.client = FakeClient()
+        self.daemon.running = True
+        self.daemon._last_state_json = None
+        self.daemon._last_fan_state_json = None
+        self.daemon._last_sensor_state_json = None
+
+        utils.write_scalar(utils.SYSTEM_MODE_FILE, "off")
+        utils.write_scalar(utils.FAN_MODE_FILE, "auto")
+        utils.write_scalar(utils.SET_TEMP_COOL_FILE, 74.0)
+        utils.write_scalar(utils.SET_TEMP_HEAT_FILE, 70.0)
+        # No outdoor_temp file by default: the sensor has no reading yet.
+
+    def tearDown(self):
+        utils.IPC_DIR = _ORIGINAL_IPC_DIR
+        for attr, fname in _FILE_NAMES.items():
+            setattr(utils, attr, _ORIGINAL_IPC_DIR / fname)
+        _load_mqtt()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def sensor_state(self, force=True):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.daemon._publish_sensor_state(force=force)
+        topic, payload, qos, retain = self.daemon.client.published[-1]
+        return topic, json.loads(payload), qos, retain
+
+    # ---------------- device id / topics ---------------- #
+    def test_sensor_device_id_derived_from_device_id(self):
+        self.assertEqual(self.mqtt.TEMP_SENSOR_DEVICE_ID, f"{self.mqtt.DEVICE_ID}-outdoor")
+        self.assertTrue(
+            self.mqtt.TEMP_TOPIC_STATE.endswith(f"/{self.mqtt.TEMP_SENSOR_DEVICE_ID}/state/root")
+        )
+
+    def test_sensor_is_not_a_write_topic(self):
+        self.assertNotIn(self.mqtt.TEMP_TOPIC_WRITE, self.mqtt.WRITE_TOPICS)
+
+    # ---------------- config payload ---------------- #
+    def test_sensor_config_advertises_temperature_sensor_device_type(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.daemon._publish_sensor_config()
+        topic, payload, qos, retain = self.daemon.client.published[-1]
+        self.assertEqual(topic, self.mqtt.TEMP_TOPIC_CONFIG)
+        self.assertTrue(retain)
+        self.assertEqual(qos, self.mqtt.PUBLISH_QOS)
+        cfg = json.loads(payload)
+        self.assertEqual(cfg["deviceTypes"], ["TemperatureSensor"])
+        self.assertIn(self.mqtt.CLUSTER_BASIC_INFORMATION, cfg["clusters"])
+        # TemperatureMeasurement is created automatically (nullable attrs).
+        self.assertNotIn(self.mqtt.CLUSTER_TEMPERATURE_MEASUREMENT, cfg["clusters"])
+
+    # ---------------- state payload ---------------- #
+    def test_sensor_state_measured_value_is_hundredths_of_c(self):
+        utils.write_scalar(utils.OUTDOOR_TEMP_FILE, 72.0)
+        topic, state, qos, retain = self.sensor_state()
+        self.assertEqual(topic, self.mqtt.TEMP_TOPIC_STATE)
+        self.assertTrue(retain)
+        self.assertEqual(qos, self.mqtt.PUBLISH_QOS)
+        # 72F = 22.222C -> 2222 (rounded)
+        self.assertEqual(state, {"TemperatureMeasurement": {"measuredValue": 2222}})
+
+    def test_sensor_state_skips_when_no_outdoor_reading(self):
+        if utils.OUTDOOR_TEMP_FILE.exists():
+            utils.OUTDOOR_TEMP_FILE.unlink()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_sensor_state(force=True)
+        self.assertEqual(self.daemon.client.published, [])
+
+    # ---------------- echo suppression ---------------- #
+    def test_identical_sensor_state_not_republished(self):
+        utils.write_scalar(utils.OUTDOOR_TEMP_FILE, 65.0)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_sensor_state(force=True)
+        count = len(self.daemon.client.published)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_sensor_state()
+        self.assertEqual(len(self.daemon.client.published), count)
+
+    def test_changed_sensor_state_republished(self):
+        utils.write_scalar(utils.OUTDOOR_TEMP_FILE, 65.0)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_sensor_state(force=True)
+        count = len(self.daemon.client.published)
+        utils.write_scalar(utils.OUTDOOR_TEMP_FILE, 66.0)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_sensor_state()
+        self.assertEqual(len(self.daemon.client.published), count + 1)
+        payload = json.loads(self.daemon.client.published[-1][1])
+        self.assertEqual(payload["TemperatureMeasurement"]["measuredValue"], self.mqtt.fahrenheit_to_matter(66.0))
+
+    # ---------------- connection wiring ---------------- #
+    def test_on_connect_publishes_sensor_config_and_state(self):
+        utils.write_scalar(utils.OUTDOOR_TEMP_FILE, 70.0)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._on_connect(self.daemon.client, None, {}, 0)
+        topics = [t for t, _p, _q, _r in self.daemon.client.published]
+        self.assertIn(self.mqtt.TEMP_TOPIC_CONFIG, topics)
+        self.assertIn(self.mqtt.TEMP_TOPIC_STATE, topics)
+        # Read-only: the sensor write topic is never subscribed.
+        subscribed_topics = {t for t, _q in self.daemon.client.subscribed}
+        self.assertNotIn(self.mqtt.TEMP_TOPIC_WRITE, subscribed_topics)
+
+    def test_on_connect_omits_sensor_state_without_reading(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._on_connect(self.daemon.client, None, {}, 0)
+        topics = [t for t, _p, _q, _r in self.daemon.client.published]
+        self.assertIn(self.mqtt.TEMP_TOPIC_CONFIG, topics)
+        self.assertNotIn(self.mqtt.TEMP_TOPIC_STATE, topics)
 
 
 if __name__ == "__main__":
