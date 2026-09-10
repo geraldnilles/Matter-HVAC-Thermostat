@@ -9,7 +9,7 @@ Built to be boring and reliable: no cloud, no app to install, no YAML to fiddle 
 - **Native phone control via Matter** — works in the iOS/Android Home apps right out of the box. [matterbridge](https://github.com/Luligu/matterbridge) + the `matterbridge-mqtt` plugin act as the Matter bridge; this project handles everything on the Pi side.
 - **No configuration files to write** — the thermostat self-registers with the matterbridge-mqtt plugin via a single retained MQTT message. No YAML.
 - **Multi-zone sensing** — multiple wireless Govee H5075 BLE temperature sensors are pooled sensibly: it heats the **coldest** room and cools the **hottest** room.
-- **Optional outdoor temperature** — configure one extra Govee sensor for outside. It is purely informational: its reading shows on the dashboard and history graph but is never averaged with or allowed to influence the room temperatures.
+- **Optional outdoor temperature** — configure one extra Govee sensor for outside. It is purely informational: its reading shows on the dashboard, history graph, and is exposed natively to Apple Home / Google Home via Matter (`outdoorTemperature`), but is never averaged with or allowed to influence the room temperatures.
 - **Protects your HVAC equipment** — 120-second minimum dwell between state changes (compressor protection), a 60-second startup delay, and normally-open relays so everything is OFF on power loss or reboot.
 - **Fails safe on bad data** — if sensor data goes stale, the HVAC is forced off instead of guessing.
 - **Setpoint protection** — heat and cool setpoints are kept at least 8 °F apart automatically.

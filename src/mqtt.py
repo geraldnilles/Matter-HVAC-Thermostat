@@ -36,6 +36,7 @@ import paho.mqtt.client as mqtt
 from utils import (
     round_degree,
     CURRENT_TEMP_FILE,
+    OUTDOOR_TEMP_FILE,
     SYSTEM_MODE_FILE,
     FAN_MODE_FILE,
     SET_TEMP_COOL_FILE,
@@ -303,6 +304,7 @@ class MqttDaemon:
     def _build_state(self) -> dict:
         """Build the Thermostat `state` payload from the IPC files."""
         current = read_float(CURRENT_TEMP_FILE)
+        outdoor = read_float(OUTDOOR_TEMP_FILE)
         system_mode = read_file(SYSTEM_MODE_FILE, default="off")
         fan_mode = read_file(FAN_MODE_FILE, default="auto")
         set_cool = read_float(SET_TEMP_COOL_FILE, default=74.0)
@@ -316,6 +318,8 @@ class MqttDaemon:
         }
         if current is not None:
             thermostat["localTemperature"] = fahrenheit_to_matter(current)
+        if outdoor is not None:
+            thermostat["outdoorTemperature"] = fahrenheit_to_matter(outdoor)
 
         # RelayStateBitmap (camelCase fields, as matterbridge publishes them).
         running_state = {field: False for field in RUNNING_STATE_FIELDS}

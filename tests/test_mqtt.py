@@ -32,6 +32,7 @@ import utils  # noqa: E402
 _ORIGINAL_IPC_DIR = utils.IPC_DIR
 _FILE_NAMES = {
     "CURRENT_TEMP_FILE": "current_temp",
+    "OUTDOOR_TEMP_FILE": "outdoor_temp",
     "SYSTEM_MODE_FILE": "system_mode",
     "FAN_MODE_FILE": "fan_mode",
     "SET_TEMP_COOL_FILE": "set_temp_cool",
@@ -191,6 +192,41 @@ class MatterbridgeProtocolTest(unittest.TestCase):
         self.assertNotIn("localTemperature", self.thermostat())
         utils.write_scalar(utils.CURRENT_TEMP_FILE, 71.0)
         self.assertIn("localTemperature", self.thermostat())
+
+    def test_state_includes_outdoor_temperature_when_present(self):
+        """72F -> 22.22C -> 2222 hundredths of a degree C in the state payload."""
+        utils.write_scalar(utils.OUTDOOR_TEMP_FILE, 72.0)
+        thermostat = self.thermostat()
+        self.assertIn("outdoorTemperature", thermostat)
+        self.assertEqual(thermostat["outdoorTemperature"], 2222)
+
+    def test_state_missing_outdoor_temp_omits_outdoor_temperature(self):
+        if utils.OUTDOOR_TEMP_FILE.exists():
+            utils.OUTDOOR_TEMP_FILE.unlink()
+        self.assertNotIn("outdoorTemperature", self.thermostat())
+
+        # A stale/unconfigured sensor is published once the file reappears.
+        utils.write_scalar(utils.OUTDOOR_TEMP_FILE, 65.0)
+        self.assertIn("outdoorTemperature", self.thermostat())
+
+    def test_outdoor_temperature_change_triggers_republish(self):
+        utils.write_scalar(utils.OUTDOOR_TEMP_FILE, 65.0)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_state(force=True)
+        count = len(self.daemon.client.published)
+
+        # Same reading again: echo suppression skips the republish.
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_state()
+        self.assertEqual(len(self.daemon.client.published), count)
+
+        # A changed outdoor reading is a changed state and republishes.
+        utils.write_scalar(utils.OUTDOOR_TEMP_FILE, 66.0)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.daemon._publish_state()
+        self.assertEqual(len(self.daemon.client.published), count + 1)
+        payload = json.loads(self.daemon.client.published[-1][1])
+        self.assertIn("outdoorTemperature", payload["Thermostat"])
 
     def test_running_state_reflects_hvac_action(self):
         base = ("heatStage2", "coolStage2", "fanStage2", "fanStage3")
